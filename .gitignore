@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+backend/.venv/
+backend/.env
+backend/data/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/public/mediapipe/
+frontend/.env.local
+
+# Editors / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+.venv/
+venv/

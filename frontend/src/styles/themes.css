@@ -1,0 +1,873 @@
+/* =====================================================================
+   Bloom website themes.
+   Each theme only swaps design tokens (CSS variables) plus a few
+   decorative touches. Components never hard-code theme colours.
+
+   [data-theme="…"] on <html> themes the whole app;
+   [data-theme-scope="…"] themes a single element (theme gallery previews).
+   Photo filters are separate and never affected by these.
+   ===================================================================== */
+
+/* ---------- 1. Midnight Garden (default) ---------- */
+:root,
+:root[data-theme="midnight"],
+[data-theme-scope="midnight"] {
+  color-scheme: dark;
+  --night: #140b19;
+  --plum-950: #190f20;
+  --plum-900: #1f1328;
+  --plum-850: #261830;
+  --plum-800: #2d1d38;
+  --plum-700: #3d2849;
+  --plum-600: #52365f;
+  --line: rgba(244, 226, 232, 0.12);
+  --line-strong: rgba(244, 226, 232, 0.24);
+  --cream: #f4ead9;
+  --cream-2: #e9dccb;
+  --ink: #e9dde3;
+  --ink-soft: #bfaebb;
+  --ink-faint: #8d7a8b;
+  --rose: #e7a3b5;
+  --rose-strong: #f0b5c4;
+  --rose-deep: #c96b88;
+  --lavender: #b9a2e8;
+  --blush: #f6d3dc;
+  --sage: #9db39a;
+  --sage-deep: #6f8a6c;
+  --amber: #ffad5a;
+  --danger: #ff8a8a;
+  --on-accent: #2a1020;
+  --field: rgba(10, 5, 12, 0.35);
+  --bar: rgba(20, 11, 25, 0.9);
+  --plate: #190f20;
+  --panel-bg: linear-gradient(180deg, rgba(45, 29, 56, 0.55), rgba(31, 19, 40, 0.55));
+  --backdrop: rgba(8, 3, 10, 0.72);
+  --off-bg: #3b1622;
+  --off-line: #6b2a3d;
+  --grain: 0.07;
+  --shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.75);
+  --glow: 0 0 70px -24px rgba(231, 163, 181, 0.35);
+  --display: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --body: "Figtree", "Segoe UI", system-ui, sans-serif;
+  --mono: "DM Mono", "Cascadia Mono", Consolas, monospace;
+  --hand: "Caveat", "Segoe Print", cursive;
+  --radius-s: 6px;
+  --radius: 12px;
+  --radius-l: 20px;
+  --bg-image:
+    radial-gradient(1px 1px at 12% 18%, rgba(244, 234, 217, 0.55), transparent 60%),
+    radial-gradient(1px 1px at 72% 9%, rgba(244, 234, 217, 0.45), transparent 60%),
+    radial-gradient(1.5px 1.5px at 88% 34%, rgba(185, 162, 232, 0.65), transparent 60%),
+    radial-gradient(1px 1px at 35% 62%, rgba(244, 234, 217, 0.35), transparent 60%),
+    radial-gradient(1px 1px at 58% 84%, rgba(244, 234, 217, 0.3), transparent 60%),
+    radial-gradient(1200px 600px at 85% -10%, rgba(201, 107, 136, 0.13), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(185, 162, 232, 0.12), transparent 60%);
+}
+
+/* ---------- 2. Y2K Digicam ---------- */
+:root[data-theme="y2k"],
+[data-theme-scope="y2k"] {
+  color-scheme: light;
+  --night: #e6e9ef;
+  --plum-950: #ffffff;
+  --plum-900: #f6f7fa;
+  --plum-850: #eef0f4;
+  --plum-800: #e2e6ec;
+  --plum-700: #cdd3dc;
+  --plum-600: #b3bac7;
+  --line: rgba(35, 42, 60, 0.15);
+  --line-strong: rgba(35, 42, 60, 0.3);
+  --cream: #1d2230;
+  --cream-2: #2c3242;
+  --ink: #262c3b;
+  --ink-soft: #545c70;
+  --ink-faint: #7f879a;
+  --rose: #ff3ea5;
+  --rose-strong: #ff63b8;
+  --rose-deep: #d81b85;
+  --lavender: #2f7bff;
+  --blush: #b0126c;
+  --sage: #2f7bff;
+  --sage-deep: #1c5fd6;
+  --amber: #ff7a1a;
+  --danger: #d6264a;
+  --on-accent: #ffffff;
+  --field: #ffffff;
+  --bar: rgba(242, 244, 248, 0.94);
+  --plate: #f9fafc;
+  --panel-bg: linear-gradient(180deg, #ffffff, #eef1f6);
+  --backdrop: rgba(25, 30, 45, 0.45);
+  --off-bg: #ffe0f0;
+  --off-line: #ff9fcf;
+  --grain: 0;
+  --shadow: 0 16px 34px -20px rgba(30, 40, 70, 0.45);
+  --glow: none;
+  --display: "Figtree", "Segoe UI", system-ui, sans-serif;
+  --body: "Figtree", "Segoe UI", system-ui, sans-serif;
+  --mono: "DM Mono", Consolas, monospace;
+  --hand: "Silkscreen", "DM Mono", monospace;
+  --radius-s: 8px;
+  --radius: 14px;
+  --radius-l: 22px;
+  --bg-image:
+    repeating-linear-gradient(0deg, rgba(47, 123, 255, 0.035) 0 1px, transparent 1px 4px),
+    linear-gradient(180deg, #f3f5f8 0%, #e3e7ee 60%, #dde2ea 100%);
+}
+
+/* ---------- 3. Paper Hearts ---------- */
+:root[data-theme="paper"],
+[data-theme-scope="paper"] {
+  color-scheme: light;
+  --night: #f3ebe0;
+  --plum-950: #fffaf2;
+  --plum-900: #f8f0e4;
+  --plum-850: #efe4d4;
+  --plum-800: #e6d8c4;
+  --plum-700: #d6c3ab;
+  --plum-600: #c2aa8e;
+  --line: rgba(92, 58, 40, 0.16);
+  --line-strong: rgba(92, 58, 40, 0.3);
+  --cream: #4a2a22;
+  --cream-2: #5b382d;
+  --ink: #4f3229;
+  --ink-soft: #7a5a4c;
+  --ink-faint: #9e8274;
+  --rose: #b4646f;
+  --rose-strong: #c97b84;
+  --rose-deep: #8e3b4a;
+  --lavender: #8e3b4a;
+  --blush: #8e3b4a;
+  --sage: #7d8c63;
+  --sage-deep: #5f6d48;
+  --amber: #a8532a;
+  --danger: #b0303a;
+  --on-accent: #fffaf2;
+  --field: #fffdf8;
+  --bar: rgba(243, 235, 224, 0.95);
+  --plate: #fffdf8;
+  --panel-bg: #fffaf2;
+  --backdrop: rgba(74, 42, 34, 0.35);
+  --off-bg: #f6dcdc;
+  --off-line: #d9a1a7;
+  --grain: 0.09;
+  --shadow: 0 14px 28px -18px rgba(74, 42, 34, 0.45);
+  --glow: none;
+  --display: "Fraunces", Georgia, serif;
+  --body: "Figtree", "Segoe UI", system-ui, sans-serif;
+  --mono: "DM Mono", Consolas, monospace;
+  --hand: "Caveat", "Segoe Print", cursive;
+  --radius-s: 4px;
+  --radius: 8px;
+  --radius-l: 10px;
+  --bg-image:
+    radial-gradient(900px 500px at 100% 0%, rgba(201, 123, 132, 0.12), transparent 60%),
+    radial-gradient(900px 600px at 0% 100%, rgba(125, 140, 99, 0.1), transparent 60%);
+}
+
+/* ---------- 4. Fairycore ---------- */
+:root[data-theme="fairy"],
+[data-theme-scope="fairy"] {
+  color-scheme: light;
+  --night: #f4eefb;
+  --plum-950: #fffbff;
+  --plum-900: #faf5fe;
+  --plum-850: #f3eafa;
+  --plum-800: #ece0f7;
+  --plum-700: #dccbee;
+  --plum-600: #c8b2e3;
+  --line: rgba(110, 80, 150, 0.15);
+  --line-strong: rgba(110, 80, 150, 0.28);
+  --cream: #3e2b5a;
+  --cream-2: #4d3a6b;
+  --ink: #4a3866;
+  --ink-soft: #74659a;
+  --ink-faint: #9a8fb8;
+  --rose: #c9679a;
+  --rose-strong: #db7fae;
+  --rose-deep: #a84d7e;
+  --lavender: #8a6bc9;
+  --blush: #a84d7e;
+  --sage: #79a98a;
+  --sage-deep: #5d8b6d;
+  --amber: #8a6bc9;
+  --danger: #c0395c;
+  --on-accent: #ffffff;
+  --field: rgba(255, 255, 255, 0.85);
+  --bar: rgba(250, 245, 255, 0.88);
+  --plate: #fffbff;
+  --panel-bg: linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(246, 236, 255, 0.86));
+  --backdrop: rgba(70, 50, 100, 0.32);
+  --off-bg: #fde4f0;
+  --off-line: #f2a9c9;
+  --grain: 0;
+  --shadow: 0 22px 50px -26px rgba(138, 107, 201, 0.55);
+  --glow: 0 0 60px -18px rgba(229, 143, 180, 0.45);
+  --display: "Cormorant Garamond", "Fraunces", Georgia, serif;
+  --body: "Figtree", "Segoe UI", system-ui, sans-serif;
+  --mono: "DM Mono", Consolas, monospace;
+  --hand: "Cormorant Garamond", Georgia, serif;
+  --radius-s: 10px;
+  --radius: 16px;
+  --radius-l: 28px;
+  --bg-image:
+    radial-gradient(1.5px 1.5px at 18% 22%, rgba(255, 255, 255, 0.95), transparent 60%),
+    radial-gradient(1.5px 1.5px at 66% 14%, rgba(255, 255, 255, 0.9), transparent 60%),
+    radial-gradient(1.5px 1.5px at 84% 58%, rgba(255, 255, 255, 0.9), transparent 60%),
+    radial-gradient(1000px 600px at 90% -10%, rgba(229, 143, 180, 0.22), transparent 60%),
+    radial-gradient(900px 600px at -10% 40%, rgba(156, 127, 214, 0.22), transparent 60%),
+    linear-gradient(180deg, #f7f2fd, #f2ebfa);
+}
+
+/* Scoped previews need their own surface colours. */
+[data-theme-scope] {
+  background-color: var(--night);
+  background-image: var(--bg-image);
+  color: var(--ink);
+  font-family: var(--body);
+}
+
+/* =====================================================================
+   Midnight Garden touches: soft glow and a quiet night sky
+   ===================================================================== */
+
+:root[data-theme="midnight"] .plate:not([data-theme-scope] *),
+[data-theme-scope="midnight"] .plate {
+  box-shadow: var(--shadow), var(--glow);
+}
+
+:root[data-theme="midnight"] h1 .flourish:not([data-theme-scope] *) {
+  text-shadow: 0 0 26px rgba(231, 163, 181, 0.35);
+}
+
+/* =====================================================================
+   Y2K Digicam touches: brushed silver, glossy plastic buttons, LCD text
+   ===================================================================== */
+
+:root[data-theme="y2k"] .app-header:not([data-theme-scope] *) {
+  background: linear-gradient(180deg, #fbfcfd 0%, #e4e8ee 100%);
+  border-bottom: 1px solid #c6ccd6;
+  box-shadow: inset 0 -1px 0 #ffffff;
+}
+
+:root[data-theme="y2k"] .wordmark:not([data-theme-scope] *),
+[data-theme-scope="y2k"] .wordmark {
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: var(--rose);
+  text-shadow: 1.5px 0 0 rgba(47, 123, 255, 0.45);
+}
+
+:root[data-theme="y2k"] h1:not([data-theme-scope] *),
+:root[data-theme="y2k"] h2:not([data-theme-scope] *),
+[data-theme-scope="y2k"] h3 {
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+:root[data-theme="y2k"] .flourish:not([data-theme-scope] *),
+[data-theme-scope="y2k"] .flourish {
+  font-family: var(--body);
+  font-style: normal;
+  font-weight: 800;
+  color: var(--rose);
+  text-shadow: 2px 0 0 rgba(47, 123, 255, 0.35);
+}
+
+:root[data-theme="y2k"] .eyebrow:not([data-theme-scope] *),
+:root[data-theme="y2k"] .label:not([data-theme-scope] *),
+:root[data-theme="y2k"] .field > span:not([data-theme-scope] *),
+[data-theme-scope="y2k"] .eyebrow {
+  font-family: var(--hand);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--lavender);
+}
+
+:root[data-theme="y2k"] .btn:not([data-theme-scope] *),
+[data-theme-scope="y2k"] .btn {
+  background: linear-gradient(180deg, #ffffff 0%, #e6e9ef 100%);
+  border-color: #b9c0cc;
+  box-shadow: inset 0 1px 0 #ffffff, 0 1px 2px rgba(30, 40, 70, 0.15);
+}
+
+:root[data-theme="y2k"] .btn.quiet:not([data-theme-scope] *) {
+  background: transparent;
+  box-shadow: none;
+  border-color: transparent;
+}
+
+:root[data-theme="y2k"] .btn.primary:not([data-theme-scope] *),
+[data-theme-scope="y2k"] .btn.primary {
+  background: linear-gradient(180deg, #ff7cc4 0%, #ff3ea5 55%, #e42a91 100%);
+  border-color: #d81b85;
+  color: #ffffff;
+  text-shadow: 0 1px 0 rgba(150, 0, 80, 0.35);
+}
+
+:root[data-theme="y2k"] .plate:not([data-theme-scope] *),
+[data-theme-scope="y2k"] .plate {
+  border-radius: 18px;
+  padding: 16px 16px 12px;
+  background: linear-gradient(180deg, #fbfcfd, #d9dee6);
+  border: 1px solid #bcc3ce;
+  box-shadow: inset 0 1px 0 #ffffff, var(--shadow);
+}
+
+:root[data-theme="y2k"] .plate:not([data-theme-scope] *)::before,
+[data-theme-scope="y2k"] .plate::before {
+  inset: 9px;
+  opacity: 0.9;
+  background:
+    linear-gradient(var(--lavender), var(--lavender)) top left / 12px 2px,
+    linear-gradient(var(--lavender), var(--lavender)) top left / 2px 12px,
+    linear-gradient(var(--lavender), var(--lavender)) top right / 12px 2px,
+    linear-gradient(var(--lavender), var(--lavender)) top right / 2px 12px,
+    linear-gradient(var(--lavender), var(--lavender)) bottom left / 12px 2px,
+    linear-gradient(var(--lavender), var(--lavender)) bottom left / 2px 12px,
+    linear-gradient(var(--lavender), var(--lavender)) bottom right / 12px 2px,
+    linear-gradient(var(--lavender), var(--lavender)) bottom right / 2px 12px;
+  background-repeat: no-repeat;
+}
+
+:root[data-theme="y2k"] .plate-caption:not([data-theme-scope] *),
+[data-theme-scope="y2k"] .plate-caption {
+  font-family: var(--hand);
+  font-size: 10px;
+  color: var(--ink-soft);
+}
+
+:root[data-theme="y2k"] .plate-caption .lcd:not([data-theme-scope] *),
+[data-theme-scope="y2k"] .plate-caption .lcd {
+  color: var(--amber);
+}
+
+:root[data-theme="y2k"] .shutter:not([data-theme-scope] *) {
+  border-color: #b9c0cc;
+  background: linear-gradient(180deg, #ffffff, #d7dce4);
+}
+
+:root[data-theme="y2k"] .shutter span:not([data-theme-scope] *) {
+  background: radial-gradient(circle at 35% 30%, #ff9bd2, #ff3ea5 60%, #c41579);
+}
+
+:root[data-theme="y2k"] .chip[aria-pressed="true"]:not([data-theme-scope] *),
+:root[data-theme="y2k"] .chip.on:not([data-theme-scope] *) {
+  background: var(--lavender);
+  border-color: var(--lavender);
+  color: #ffffff;
+}
+
+/* =====================================================================
+   Paper Hearts touches: handwriting, tape, torn edges, Polaroids
+   ===================================================================== */
+
+:root[data-theme="paper"] body::before {
+  filter: invert(1) sepia(1);
+}
+
+:root[data-theme="paper"] .eyebrow:not([data-theme-scope] *),
+[data-theme-scope="paper"] .eyebrow {
+  font-family: var(--hand);
+  font-size: 20px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--rose-deep);
+}
+
+:root[data-theme="paper"] .flourish:not([data-theme-scope] *),
+[data-theme-scope="paper"] .flourish {
+  font-family: var(--hand);
+  font-style: normal;
+  font-size: 1.15em;
+  color: var(--rose-deep);
+}
+
+:root[data-theme="paper"] .wordmark:not([data-theme-scope] *),
+[data-theme-scope="paper"] .wordmark {
+  font-family: var(--hand);
+  font-style: normal;
+  font-size: 34px;
+  color: var(--rose-deep);
+}
+
+/* plates become taped-in prints */
+:root[data-theme="paper"] .plate:not([data-theme-scope] *),
+[data-theme-scope="paper"] .plate {
+  padding: 12px 12px 14px;
+  background: #fffdf8;
+  border: 1px solid var(--line);
+  transform: rotate(-0.4deg);
+}
+
+:root[data-theme="paper"] .plate:not([data-theme-scope] *)::before,
+[data-theme-scope="paper"] .plate::before {
+  display: none;
+}
+
+:root[data-theme="paper"] .plate:not([data-theme-scope] *)::after,
+[data-theme-scope="paper"] .plate::after {
+  display: block;
+  content: "";
+  position: absolute;
+  inset: auto;
+  top: -11px;
+  left: 50%;
+  width: 96px;
+  height: 22px;
+  margin-left: -48px;
+  opacity: 1;
+  transform: rotate(-3deg);
+  background: rgba(201, 123, 132, 0.45);
+  border-left: 1px dashed rgba(255, 255, 255, 0.6);
+  border-right: 1px dashed rgba(255, 255, 255, 0.6);
+}
+
+:root[data-theme="paper"] .plate-caption:not([data-theme-scope] *),
+[data-theme-scope="paper"] .plate-caption {
+  font-family: var(--hand);
+  font-size: 18px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* torn-paper bottom edge on panels */
+:root[data-theme="paper"] .panel:not([data-theme-scope] *),
+[data-theme-scope="paper"] .panel {
+  border-radius: 2px;
+  padding-bottom: 32px;
+  -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / 14px 100%;
+  mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / 14px 100%;
+}
+
+:root[data-theme="paper"] .btn.primary:not([data-theme-scope] *),
+[data-theme-scope="paper"] .btn.primary {
+  border-radius: 4px;
+}
+
+:root[data-theme="paper"] .btn:not([data-theme-scope] *),
+[data-theme-scope="paper"] .btn {
+  border-radius: 4px;
+}
+
+:root[data-theme="paper"] .main-nav a.active:not([data-theme-scope] *) {
+  background: transparent;
+  text-decoration: underline wavy var(--rose) 1px;
+  text-underline-offset: 6px;
+}
+
+/* a pressed flower in the corner of every page */
+:root[data-theme="paper"] body::after {
+  content: "";
+  position: fixed;
+  right: -10px;
+  bottom: -14px;
+  width: 170px;
+  height: 170px;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.55;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'><path d='M100 116C78 86 62 62 50 30' stroke='%237d8c63' stroke-width='1.6' fill='none'/><path d='M74 82c-12 0-18-8-18-15 9 0 16 6 18 15ZM62 58c10-3 13-11 12-17-8 2-12 9-12 17Z' fill='%23a3b08a'/><g fill='%23c97b84' opacity='.85'><ellipse cx='48' cy='20' rx='6' ry='11'/><ellipse cx='48' cy='20' rx='6' ry='11' transform='rotate(72 50 30)'/><ellipse cx='48' cy='20' rx='6' ry='11' transform='rotate(144 50 30)'/><ellipse cx='48' cy='20' rx='6' ry='11' transform='rotate(216 50 30)'/><ellipse cx='48' cy='20' rx='6' ry='11' transform='rotate(288 50 30)'/></g><circle cx='50' cy='30' r='4' fill='%238e3b4a'/></svg>") no-repeat center / contain;
+}
+
+/* =====================================================================
+   Fairycore touches: pearl surfaces, soft glow, sparkles, petals
+   ===================================================================== */
+
+:root[data-theme="fairy"] .flourish:not([data-theme-scope] *),
+[data-theme-scope="fairy"] .flourish {
+  color: var(--lavender);
+  text-shadow: 0 0 18px rgba(201, 103, 154, 0.35);
+}
+
+:root[data-theme="fairy"] h1:not([data-theme-scope] *),
+:root[data-theme="fairy"] h2:not([data-theme-scope] *),
+[data-theme-scope="fairy"] h3 {
+  font-weight: 500;
+}
+
+:root[data-theme="fairy"] h1:not([data-theme-scope] *) {
+  font-size: clamp(34px, 4.6vw, 54px);
+}
+
+:root[data-theme="fairy"] .plate:not([data-theme-scope] *),
+[data-theme-scope="fairy"] .plate {
+  border-radius: 22px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow), var(--glow);
+}
+
+:root[data-theme="fairy"] .plate:not([data-theme-scope] *)::before,
+[data-theme-scope="fairy"] .plate::before {
+  display: none;
+}
+
+:root[data-theme="fairy"] .plate:not([data-theme-scope] *)::after,
+[data-theme-scope="fairy"] .plate::after {
+  display: block;
+  content: "✦";
+  position: absolute;
+  inset: auto;
+  top: -10px;
+  right: 18px;
+  font-size: 18px;
+  color: var(--lavender);
+  background: none;
+  opacity: 0.9;
+  text-shadow: -26px 14px 0 rgba(201, 103, 154, 0.7), 14px 22px 0 rgba(255, 255, 255, 0.95);
+}
+
+:root[data-theme="fairy"] .btn.primary:not([data-theme-scope] *),
+[data-theme-scope="fairy"] .btn.primary {
+  background: linear-gradient(135deg, #d98ab6, #a98be0);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 10px 24px -12px rgba(138, 107, 201, 0.8);
+}
+
+:root[data-theme="fairy"] .panel:not([data-theme-scope] *) {
+  backdrop-filter: blur(6px);
+}
+
+/* floating petals (rendered only in Fairycore, see ThemeDecor) */
+.petal-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.petal-layer span {
+  position: absolute;
+  top: -40px;
+  width: 12px;
+  height: 16px;
+  border-radius: 80% 0 80% 0;
+  background: linear-gradient(135deg, rgba(246, 211, 234, 0.95), rgba(201, 168, 240, 0.8));
+  opacity: 0.7;
+  animation: petal-fall linear infinite;
+}
+
+@keyframes petal-fall {
+  0% {
+    transform: translate3d(0, -40px, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(40px, 50vh, 0) rotate(160deg);
+  }
+  100% {
+    transform: translate3d(-20px, 105vh, 0) rotate(320deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .petal-layer {
+    display: none;
+  }
+}
+
+/* =====================================================================
+   Journal per theme (saved images are never altered, only framed)
+   ===================================================================== */
+
+.entry-card .entry-no,
+.entry-card .entry-file {
+  display: none;
+}
+
+/* Midnight Garden: a nocturnal botanical archive with specimen labels */
+:root[data-theme="midnight"] .entry-card .print:not([data-theme-scope] *) {
+  outline: 1px solid var(--line-strong);
+  outline-offset: 5px;
+}
+
+:root[data-theme="midnight"] .entry-card .entry-no:not([data-theme-scope] *),
+[data-theme-scope="midnight"] .entry-card .entry-no {
+  display: inline;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--lavender);
+  margin-right: 8px;
+}
+
+/* Y2K Digicam: a tidy grid like a camera's photo browser */
+:root[data-theme="y2k"] .entries:not([data-theme-scope] *) {
+  columns: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 18px;
+}
+
+:root[data-theme="y2k"] .entry-card:not([data-theme-scope] *) {
+  margin: 0;
+  padding: 8px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff, #e9edf3);
+  border: 1px solid #c3cad5;
+}
+
+:root[data-theme="y2k"] .entry-card .print:not([data-theme-scope] *) {
+  aspect-ratio: 4 / 3;
+  border-radius: 8px;
+  box-shadow: none;
+  background: #14161f;
+}
+
+:root[data-theme="y2k"] .entry-card .print img:not([data-theme-scope] *),
+:root[data-theme="y2k"] .entry-card .print .flower-svg:not([data-theme-scope] *) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+:root[data-theme="y2k"] .entry-card .entry-file:not([data-theme-scope] *) {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--hand);
+  font-size: 9px;
+  color: var(--lavender);
+}
+
+:root[data-theme="y2k"] .entry-card .title:not([data-theme-scope] *) {
+  font-family: var(--body);
+  font-style: normal;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+/* Paper Hearts: Polaroids, tilted and taped */
+:root[data-theme="paper"] .entry-card .print:not([data-theme-scope] *),
+[data-theme-scope="paper"] .entry-card .print {
+  padding: 10px 10px 36px;
+  background: #fffdf8;
+  border-radius: 2px;
+  transform: rotate(-1.2deg);
+  box-shadow: var(--shadow);
+}
+
+:root[data-theme="paper"] .entry-card:nth-child(2n) .print:not([data-theme-scope] *) {
+  transform: rotate(1deg);
+}
+
+:root[data-theme="paper"] .entry-card:hover .print:not([data-theme-scope] *) {
+  transform: rotate(0deg) translateY(-3px);
+}
+
+:root[data-theme="paper"] .entry-card .title:not([data-theme-scope] *),
+[data-theme-scope="paper"] .entry-card .title {
+  font-family: var(--hand);
+  font-style: normal;
+  font-size: 24px;
+  color: var(--cream);
+}
+
+:root[data-theme="paper"] .entry-card .caption:not([data-theme-scope] *) {
+  font-family: var(--hand);
+  font-size: 18px;
+}
+
+/* Fairycore: soft rounded keepsakes with a glow */
+:root[data-theme="fairy"] .entry-card .print:not([data-theme-scope] *),
+[data-theme-scope="fairy"] .entry-card .print {
+  border-radius: 20px;
+  border: 3px solid rgba(255, 255, 255, 0.95);
+  box-shadow: var(--shadow), var(--glow);
+}
+
+:root[data-theme="fairy"] .entry-card .title:not([data-theme-scope] *) {
+  font-size: 22px;
+}
+
+/* =====================================================================
+   Theme gallery
+   ===================================================================== */
+
+.theme-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  gap: 22px;
+}
+
+.theme-preview {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.theme-preview.is-current {
+  outline: 3px solid var(--rose);
+  outline-offset: 3px;
+}
+
+.theme-preview .mini-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--bar);
+  border: 1px solid var(--line);
+}
+
+.theme-preview .wordmark {
+  font-size: 22px;
+}
+
+.theme-preview .wordmark svg {
+  width: 20px;
+  height: 20px;
+}
+
+.theme-preview .mini-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+.theme-preview .plate {
+  padding: 8px;
+}
+
+.theme-preview .mini-entry .print {
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.palette-row {
+  display: flex;
+  gap: 6px;
+}
+
+.palette-row span {
+  flex: 1;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+
+.theme-preview h3 {
+  font-size: 22px;
+}
+
+.theme-preview .tagline {
+  color: var(--ink-soft);
+  font-size: 13.5px;
+}
+
+.theme-quick {
+  display: grid;
+  gap: 8px;
+}
+
+.theme-quick button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: 500 14px var(--body);
+  cursor: pointer;
+  text-align: left;
+}
+
+.theme-quick button[aria-checked="true"] {
+  border-color: var(--rose);
+  background: color-mix(in srgb, var(--rose) 10%, transparent);
+}
+
+.theme-quick .dots {
+  display: inline-flex;
+}
+
+.theme-quick .dots i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  margin-left: -4px;
+  border: 1.5px solid var(--plate);
+}
+
+.theme-quick .dots i:first-child {
+  margin-left: 0;
+}
+
+.suggested-colours {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px dashed var(--line-strong);
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.suggested-colours .dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.suggested-colours .dots i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+}
+
+/* theme menu popover */
+.appearance {
+  position: relative;
+}
+
+.appearance-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  z-index: 50;
+  width: 280px;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-l);
+  background: var(--plate);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.journal-kind {
+  margin-top: 6px;
+  font-family: var(--hand, var(--body));
+  color: var(--ink-soft);
+  font-size: 15px;
+}
+
+/* The camera viewfinder is always a dark screen, whatever the theme:
+   keep its text and secondary buttons light so they stay readable. */
+.viewfinder {
+  --ink: #f6eee6;
+  --ink-soft: #d9cdd5;
+  --ink-faint: #a698a6;
+  --cream: #ffffff;
+  --line: rgba(255, 255, 255, 0.2);
+  --line-strong: rgba(255, 255, 255, 0.34);
+  --field: rgba(255, 255, 255, 0.07);
+  color: var(--ink);
+}
+
+.viewfinder .empty-state .btn:not(.primary) {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--line-strong);
+}

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>bloom — gallery</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Karla:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <a class="wordmark" href="../studio.html">
+      <svg class="wordmark-flower" viewBox="0 0 40 44" aria-hidden="true">
+        <path d="M20 22 C20 31 18 36 13 42" class="sprig-stem"/>
+        <path d="M18 33 C12 33 9 29 9 26 C14 26 17 29 18 33Z" class="sprig-leaf"/>
+        <g class="flower-petals">
+          <ellipse cx="20" cy="9.5" rx="3.8" ry="6"/>
+          <ellipse cx="20" cy="9.5" rx="3.8" ry="6" transform="rotate(72 20 16)"/>
+          <ellipse cx="20" cy="9.5" rx="3.8" ry="6" transform="rotate(144 20 16)"/>
+          <ellipse cx="20" cy="9.5" rx="3.8" ry="6" transform="rotate(216 20 16)"/>
+          <ellipse cx="20" cy="9.5" rx="3.8" ry="6" transform="rotate(288 20 16)"/>
+        </g>
+        <circle cx="20" cy="16" r="2.8" class="flower-heart"/>
+      </svg>
+      <span>bloom</span>
+    </a>
+    <nav class="site-nav">
+      <a href="../studio.html">Studio</a>
+      <a href="index.html" class="is-current">Gallery</a>
+      <span class="nav-user"><span data-user-name></span>’s journal</span>
+      <button type="button" class="link-button" data-sign-out>Sign out</button>
+    </nav>
+  </header>
+
+  <main class="gallery">
+    <div class="gallery-heading">
+      <p class="eyebrow">The gallery</p>
+      <h1>Pressed flowers</h1>
+      <p class="gallery-count" id="count"></p>
+    </div>
+
+    <div class="specimens" id="specimens"></div>
+
+    <div class="journal-card empty" id="empty" hidden>
+      <svg class="empty-sprig" viewBox="0 0 90 90" aria-hidden="true">
+        <path d="M45 86 C45 60 46 36 45 12" class="sprig-stem"/>
+        <path d="M45 62 C34 60 29 52 30 45 C39 47 45 54 45 62Z" class="sprig-leaf"/>
+        <path d="M45 44 C56 43 61 35 61 28 C52 29 46 36 45 44Z" class="sprig-leaf"/>
+        <circle cx="45" cy="10" r="5" class="sprig-bud"/>
+      </svg>
+      <h2>Nothing pressed yet</h2>
+      <p>Grow a flower in the studio and save it. It will wait for you here.</p>
+      <a class="button rose" href="../studio.html">Go to the studio</a>
+    </div>
+  </main>
+
+  <script src="../js/journal.js"></script>
+  <script src="../js/flower.js"></script>
+  <script src="../js/gallery.js"></script>
+</body>
+</html>

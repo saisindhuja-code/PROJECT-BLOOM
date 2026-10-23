@@ -1,0 +1,9 @@
+**/node_modules
+**/__pycache__
+frontend/dist
+frontend/public/mediapipe
+backend/.venv
+backend/data
+backend/.env
+legacy
+.git

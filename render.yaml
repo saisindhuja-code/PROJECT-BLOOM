@@ -1,0 +1,28 @@
+# Render Blueprint: creates the Bloom website and its free database in one go.
+# In Render: New → Blueprint → pick this GitHub repository.
+services:
+  - type: web
+    name: bloom
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: BLOOM_ENV
+        value: production
+      - key: BLOOM_SECRET_KEY
+        generateValue: true
+      - key: BLOOM_COOKIE_SECURE
+        value: "true"
+      # The free plan wipes files on restart, so photos are kept in the database.
+      - key: BLOOM_STORAGE
+        value: database
+      - key: BLOOM_MAX_UPLOAD_MB
+        value: "8"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bloom-db
+          property: connectionString
+
+databases:
+  - name: bloom-db
+    plan: free

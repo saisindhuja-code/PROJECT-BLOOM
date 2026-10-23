@@ -1,0 +1,683 @@
+/* =====================================================================
+   bloom — an old botanical journal meets a little art studio
+   Paper · Rose · Sage · Cocoa · Ink
+   ===================================================================== */
+
+:root {
+  --paper: #f5eee2;
+  --paper-light: #fbf7f0;
+  --paper-deep: #ebe0cd;
+  --rose: #c4868b;
+  --rose-deep: #a5656c;
+  --rose-wash: rgba(196, 134, 139, 0.35);
+  --sage: #8fa385;
+  --sage-deep: #687d5f;
+  --cocoa: #6b4e3d;
+  --ink: #2f2925;
+  --ink-soft: #6a5e55;
+  --line: #d9c8ae;
+
+  --serif: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  --hand: "Caveat", "Segoe Print", "Bradley Hand", cursive;
+  --body: "Karla", "Segoe UI", Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.55;
+  background-color: var(--paper);
+  /* paper grain + soft light, all drawn by the browser (no image files) */
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.42  0 0 0 0 0.31  0 0 0 0 0.22  0 0 0 0.11 0'/></filter><rect width='100%' height='100%' filter='url(%23g)'/></svg>"),
+    radial-gradient(ellipse at 50% -10%, rgba(255, 255, 255, 0.7), transparent 60%),
+    radial-gradient(ellipse at 50% 120%, rgba(107, 78, 61, 0.14), transparent 60%);
+  background-attachment: fixed;
+}
+
+a {
+  color: var(--rose-deep);
+}
+
+h1,
+h2 {
+  font-family: var(--serif);
+  font-weight: 500;
+  margin: 0;
+}
+
+h1 {
+  font-size: 30px;
+  line-height: 1.15;
+}
+
+/* ---------- little botanical drawings ---------- */
+
+.sprig-stem {
+  fill: none;
+  stroke: var(--sage-deep);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+.sprig-leaf {
+  fill: var(--sage);
+  opacity: 0.85;
+}
+
+.sprig-bud,
+.flower-petals {
+  fill: var(--rose);
+}
+
+.flower-heart {
+  fill: var(--cocoa);
+}
+
+/* ---------- wordmark ---------- */
+
+.wordmark {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 4px;
+  font-family: var(--hand);
+  font-weight: 700;
+  font-size: 40px;
+  line-height: 1;
+  color: var(--cocoa);
+  text-decoration: none;
+}
+
+.wordmark-flower {
+  width: 28px;
+  height: 31px;
+  margin-bottom: 2px;
+}
+
+.wordmark-large {
+  font-size: 68px;
+}
+
+.wordmark-large .wordmark-flower {
+  width: 46px;
+  height: 51px;
+  margin-bottom: 6px;
+}
+
+/* ---------- header ---------- */
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 22px 32px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  font-family: var(--serif);
+  font-size: 18px;
+}
+
+.site-nav a {
+  color: var(--ink-soft);
+  text-decoration: none;
+  padding-bottom: 2px;
+  border-bottom: 1px solid transparent;
+}
+
+.site-nav a:hover,
+.site-nav a.is-current {
+  color: var(--ink);
+  border-bottom-color: var(--rose);
+}
+
+.nav-user {
+  font-family: var(--hand);
+  font-size: 22px;
+  color: var(--cocoa);
+}
+
+/* ---------- cards: a page from a journal ---------- */
+
+.journal-card {
+  position: relative;
+  background: var(--paper-light);
+  border: 1px solid var(--line);
+  outline: 1px solid var(--line);
+  outline-offset: -8px;          /* the thin double rule */
+  border-radius: 3px;
+  padding: 36px 34px;
+  box-shadow:
+    0 1px 1px rgba(60, 40, 25, 0.05),
+    0 22px 44px -28px rgba(60, 40, 25, 0.45);
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  font-family: var(--serif);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--rose-deep);
+}
+
+/* ---------- form fields ---------- */
+
+.field {
+  display: block;
+  margin-top: 22px;
+}
+
+.label {
+  display: block;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 19px;
+  color: var(--cocoa);
+}
+
+.label small {
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.field input {
+  width: 100%;
+  margin-top: 2px;
+  padding: 6px 2px;
+  font-family: var(--body);
+  font-size: 16px;
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--cocoa);
+  border-radius: 0;
+  outline: none;
+}
+
+.field input:focus {
+  border-bottom: 2px solid var(--rose);
+  padding-bottom: 5px;
+}
+
+.word-input {
+  font-family: var(--hand) !important;
+  font-size: 30px !important;
+}
+
+.word-input::placeholder {
+  color: #b9a998;
+}
+
+/* ---------- buttons ---------- */
+
+.button {
+  display: inline-block;
+  padding: 9px 20px;
+  font-family: var(--body);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 0.15s, transform 0.15s;
+}
+
+.button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.rose {
+  background: var(--rose);
+  border-color: var(--rose-deep);
+  color: #fff;
+}
+
+.rose:hover:not(:disabled) {
+  background: var(--rose-deep);
+}
+
+.sage {
+  background: transparent;
+  border-color: var(--sage-deep);
+  color: var(--sage-deep);
+}
+
+.sage:hover:not(:disabled) {
+  background: rgba(143, 163, 133, 0.15);
+}
+
+.quiet {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--ink-soft);
+}
+
+.quiet:hover:not(:disabled) {
+  border-color: var(--cocoa);
+  color: var(--ink);
+}
+
+.link-button {
+  padding: 0;
+  font: inherit;
+  font-family: var(--serif);
+  font-size: 17px;
+  font-style: italic;
+  color: var(--rose-deep);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
+.link-button.muted {
+  color: var(--ink-soft);
+}
+
+:focus-visible {
+  outline: 2px dashed var(--rose);
+  outline-offset: 3px;
+}
+
+/* =====================================================================
+   Sign in page
+   ===================================================================== */
+
+.welcome {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 16px;
+}
+
+.welcome-card {
+  width: 100%;
+  max-width: 420px;
+  text-align: center;
+  padding-top: 44px;
+}
+
+.corner-sprig {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 74px;
+  height: 74px;
+  opacity: 0.8;
+}
+
+.tagline {
+  margin: 4px 0 26px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 18px;
+  color: var(--ink-soft);
+}
+
+.tabs {
+  display: flex;
+  justify-content: center;
+  gap: 26px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tab {
+  padding: 6px 2px 8px;
+  margin-bottom: -1px;
+  font-family: var(--serif);
+  font-size: 19px;
+  color: var(--ink-soft);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.tab.is-active {
+  color: var(--ink);
+  border-bottom-color: var(--rose);
+}
+
+.auth-form {
+  text-align: left;
+}
+
+.auth-form .button {
+  width: 100%;
+  margin-top: 28px;
+}
+
+.form-message {
+  min-height: 1.4em;
+  margin: 14px 0 0;
+  color: var(--rose-deep);
+  font-size: 14px;
+}
+
+.fine-print {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+/* =====================================================================
+   Studio
+   ===================================================================== */
+
+.studio {
+  display: grid;
+  grid-template-columns: minmax(300px, 370px) 1fr;
+  gap: 48px;
+  align-items: start;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 40px 32px 60px;
+}
+
+.paints {
+  margin: 26px 0 0;
+  padding: 0;
+  border: none;
+}
+
+.dabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px 6px;
+  margin-top: 12px;
+}
+
+.dab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+/* the real color picker sits invisibly on top of the paint dab */
+.dab input[type="color"] {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 50px;
+  height: 46px;
+  transform: translateX(-50%);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.paint {
+  width: 48px;
+  height: 44px;
+  background-color: var(--paint, #ccc);
+  background-image:
+    radial-gradient(circle at 34% 30%, rgba(255, 255, 255, 0.5), transparent 42%),
+    radial-gradient(circle at 70% 76%, rgba(40, 20, 10, 0.18), transparent 55%);
+  border-radius: 58% 42% 55% 45% / 47% 58% 42% 53%;
+  box-shadow:
+    inset 0 0 0 1px rgba(47, 41, 37, 0.1),
+    inset -3px -5px 8px rgba(40, 20, 10, 0.12);
+  filter: url(#watercolor);
+  transition: transform 0.2s;
+}
+
+.dab:nth-child(2n) .paint { border-radius: 45% 55% 48% 52% / 56% 44% 58% 42%; }
+.dab:nth-child(3n) .paint { border-radius: 52% 48% 40% 60% / 45% 55% 48% 52%; }
+.dab:nth-child(5n) .paint { border-radius: 60% 40% 52% 48% / 50% 46% 54% 50%; }
+
+.dab:hover .paint {
+  transform: scale(1.07) rotate(-3deg);
+}
+
+.dab:focus-within .paint {
+  outline: 2px dashed var(--rose);
+  outline-offset: 4px;
+}
+
+.dab-name {
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--ink-soft);
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 30px;
+}
+
+/* the flower, shown like artwork taped into the journal */
+
+.artwork {
+  text-align: center;
+}
+
+.frame {
+  position: relative;
+  padding: 16px;
+  background: #fffdf8;
+  border: 1px solid var(--line);
+  box-shadow:
+    0 2px 2px rgba(60, 40, 25, 0.05),
+    0 28px 50px -30px rgba(60, 40, 25, 0.6);
+  transform: rotate(-0.5deg);
+}
+
+.frame canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 2;
+}
+
+.tape {
+  position: absolute;
+  top: -13px;
+  width: 92px;
+  height: 26px;
+  background: var(--rose-wash);
+  border-left: 1px dashed rgba(255, 255, 255, 0.5);
+  border-right: 1px dashed rgba(255, 255, 255, 0.5);
+}
+
+.tape-left {
+  left: 26px;
+  transform: rotate(-7deg);
+}
+
+.tape-right {
+  right: 26px;
+  transform: rotate(6deg);
+  background: rgba(143, 163, 133, 0.38);
+}
+
+.caption {
+  margin: 22px 0 14px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 19px;
+  color: var(--cocoa);
+}
+
+.artwork-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.toast {
+  min-height: 1.6em;
+  margin: 14px 0 0;
+  font-family: var(--hand);
+  font-size: 22px;
+  color: var(--sage-deep);
+}
+
+/* =====================================================================
+   Gallery
+   ===================================================================== */
+
+.gallery {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 40px 32px 60px;
+}
+
+.gallery-heading {
+  margin-bottom: 34px;
+}
+
+.gallery-heading h1 {
+  font-size: 40px;
+}
+
+.gallery-count {
+  margin: 4px 0 0;
+  font-family: var(--hand);
+  font-size: 22px;
+  color: var(--ink-soft);
+}
+
+.specimens {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 38px 32px;
+}
+
+.specimen {
+  padding: 12px 12px 16px;
+  background: #fffdf8;
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 34px -24px rgba(60, 40, 25, 0.55);
+  transform: rotate(-0.8deg);
+  transition: transform 0.2s;
+}
+
+.specimen:nth-child(2n) { transform: rotate(0.7deg); }
+.specimen:nth-child(3n) { transform: rotate(-0.3deg); }
+
+.specimen:hover {
+  transform: rotate(0deg) translateY(-3px);
+}
+
+.specimen canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 2;
+}
+
+.specimen-word {
+  margin-top: 12px;
+  font-family: var(--hand);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--cocoa);
+  overflow-wrap: anywhere;
+}
+
+.specimen-meta {
+  margin: 4px 0 10px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+
+.specimen-actions {
+  display: flex;
+  gap: 18px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.specimen-actions .link-button {
+  font-size: 15px;
+}
+
+.empty {
+  max-width: 420px;
+  margin: 10px auto;
+  text-align: center;
+}
+
+.empty-sprig {
+  width: 64px;
+  height: 64px;
+}
+
+.empty h2 {
+  margin-top: 8px;
+  font-size: 26px;
+}
+
+.empty p {
+  margin: 8px 0 22px;
+  color: var(--ink-soft);
+}
+
+/* =====================================================================
+   Phones and small screens
+   ===================================================================== */
+
+@media (max-width: 860px) {
+  .studio {
+    grid-template-columns: 1fr;
+    gap: 36px;
+    padding: 28px 16px 48px;
+  }
+
+  .site-header {
+    padding: 16px;
+  }
+
+  .gallery {
+    padding: 28px 16px 48px;
+  }
+
+  .journal-card {
+    padding: 30px 22px;
+  }
+
+  .welcome-card {
+    padding-top: 62px;
+  }
+
+  .corner-sprig {
+    width: 50px;
+    height: 50px;
+  }
+}
