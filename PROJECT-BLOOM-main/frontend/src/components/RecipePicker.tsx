@@ -1,6 +1,7 @@
 /** Choose which flower to use: the one in the Studio, or a saved design. */
 import { useEffect, useState } from "react";
 import type { FlowerRecipe } from "../flower/recipe";
+import { Link } from "../lib/router";
 import { useSession } from "../lib/session";
 import type { SavedDesign } from "../lib/store";
 import { FlowerPreview } from "./FlowerPreview";
@@ -20,7 +21,7 @@ export function RecipePicker({ value, onChange }: { value: FlowerRecipe | null; 
   if (options.length === 0) {
     return (
       <p className="muted small">
-        No flower yet. <a href="/studio">Grow one in the Studio</a> first.
+        No flower yet. <Link to="/studio">Grow one in the Studio</Link> first.
       </p>
     );
   }

@@ -92,7 +92,10 @@ export function blobToImage(blob: Blob): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(blob);
     const image = new Image();
-    image.onload = () => resolve(image);
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
     image.onerror = () => {
       URL.revokeObjectURL(url);
       reject(new Error("That file could not be opened as an image."));

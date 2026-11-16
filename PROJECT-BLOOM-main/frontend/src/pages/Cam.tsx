@@ -57,7 +57,7 @@ export function CamPage() {
   const history = useHistory<CamEdit>({ recipe: hasFlower ? studioRecipe : null, overlay: defaultPlacement(), theme: defaultSettings() });
   const edit = history.value;
 
-  useNavigationGuard(Boolean(photo) && history.canUndo && !saving, "Leave without saving this photo?");
+  useNavigationGuard(Boolean(photo) && (!editing || history.canUndo) && !saving, "Leave without saving this photo?");
 
   // Re-edit an existing journal entry: /cam?entry=s:12
   useEffect(() => {
@@ -126,14 +126,14 @@ export function CamPage() {
   const save = async (details: SaveDetails) => {
     if (!photo) return;
     setSaving(true);
-    const final = await canvasToBlob(renderFinal(photo, edit, date), "image/jpeg", 0.92);
-    const editState = {
-      version: 1,
-      theme: { ...edit.theme, name: themeById(edit.theme.preset).name },
-      overlay: edit.overlay,
-      photo: { width: photo.width, height: photo.height },
-    };
     try {
+      const final = await canvasToBlob(renderFinal(photo, edit, date), "image/jpeg", 0.92);
+      const editState = {
+        version: 1,
+        theme: { ...edit.theme, name: themeById(edit.theme.preset).name },
+        overlay: edit.overlay,
+        photo: { width: photo.width, height: photo.height },
+      };
       if (editing) {
         const keepOriginal = details.keepOriginal && Boolean(editing.originalUrl);
         const entry = await storeFor(editing.id, store).updateEntry(editing.id, {
@@ -148,6 +148,7 @@ export function CamPage() {
           keep_original: keepOriginal ? undefined : false,
         });
         toast("Journal entry updated.");
+        setPreview(null);
         setPhoto(null);
         navigate(`/journal/${entry.id}`);
       } else {
@@ -165,12 +166,12 @@ export function CamPage() {
           album_ids: details.albumIds,
         });
         toast("Saved to your journal.");
+        setPreview(null);
         setPhoto(null);
         navigate(`/journal/${entry.id}`);
       }
     } finally {
       setSaving(false);
-      setPreview(null);
     }
   };
 

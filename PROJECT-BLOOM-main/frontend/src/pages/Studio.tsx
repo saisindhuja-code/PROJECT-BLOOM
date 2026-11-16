@@ -37,10 +37,11 @@ export function StudioPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store]);
 
+  const wantedDesign = query.get("design");
+
   // Opening /studio?design=s:12 loads that design.
   useEffect(() => {
-    const wanted = query.get("design");
-    const match = wanted && designs.find((d) => d.id === wanted);
+    const match = wantedDesign && designs.find((d) => d.id === wantedDesign);
     if (match) {
       growFlower(match.recipe);
       setDraftWord(match.recipe.word);
@@ -48,7 +49,7 @@ export function StudioPage() {
       setTitle(match.title);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [designs]);
+  }, [designs, wantedDesign]);
 
   const stats = useMemo(() => {
     const drawing = buildFlower(recipe);
@@ -104,7 +105,7 @@ export function StudioPage() {
   };
 
   const exportPng = async () => {
-    const drawing = buildFlower(transparent ? { ...recipe } : recipe);
+    const drawing = buildFlower(recipe);
     const canvas = drawingToCanvas(drawing, { framing: transparent ? "tight" : "window", background: !transparent, scale: 4 });
     downloadBlob(await canvasToBlob(canvas), `bloom-${safeFileName(recipe.word)}.png`);
   };
@@ -314,7 +315,7 @@ export function StudioPage() {
               <button type="button" className="btn small quiet" onClick={() => fileInput.current?.click()}>
                 <IconUpload /> Open recipe
               </button>
-              <input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={(e) => void openRecipe(e.target.files?.[0])} />
+              <input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; void openRecipe(file); }} />
             </div>
           </div>
         </section>

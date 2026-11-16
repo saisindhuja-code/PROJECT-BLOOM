@@ -1,4 +1,4 @@
-"""Permission checks shared by the routers. Private by default."""
+"""Permission checks and shared media cleanup. Private by default."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from .models import (
     Contribution,
     Friendship,
+    JournalEntry,
     LiveCapture,
     LiveRoom,
     Media,
@@ -70,14 +71,16 @@ def can_view_media(db: Session, media: Media, user: User) -> bool:
     # Shared through a project: the media is in someone's contribution and
     # both people are active members of that project.
     shared_projects = db.scalars(
-        select(Contribution.project_id).join(
+        select(Contribution.project_id)
+        .join(
             ProjectMember,
             and_(
                 ProjectMember.project_id == Contribution.project_id,
                 ProjectMember.user_id == user.id,
                 ProjectMember.status == "active",
             ),
-        ).where(Contribution.user_id == media.owner_id)
+        )
+        .where(Contribution.user_id == media.owner_id)
     ).all()
     for project_id in shared_projects:
         contribution = db.scalar(
@@ -97,3 +100,30 @@ def can_view_media(db: Session, media: Media, user: User) -> bool:
         )
     )
     return capture is not None
+
+
+def release_media(db: Session, media_id: int | None, doomed: list[str]) -> None:
+    """
+    Removes an image once nothing refers to it any more. The stored file's key
+    is added to `doomed`; delete those only after the database commit.
+    """
+    if media_id is None:
+        return
+    media = db.get(Media, media_id)
+    if media is None:
+        return
+    still_used = db.scalar(
+        select(JournalEntry.id).where(
+            or_(JournalEntry.photo_media_id == media_id, JournalEntry.original_media_id == media_id)
+        )
+    )
+    in_capture = db.scalar(select(LiveCapture.id).where(LiveCapture.media_id == media_id))
+    in_contribution = any(
+        item.get("media_id") == media_id
+        for contribution in db.scalars(select(Contribution).where(Contribution.user_id == media.owner_id))
+        for item in contribution.items or []
+    )
+    if still_used or in_capture or in_contribution:
+        return
+    doomed.append(media.storage_key)
+    db.delete(media)

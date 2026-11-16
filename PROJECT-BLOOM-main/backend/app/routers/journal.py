@@ -6,13 +6,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..access import active_membership, not_found, require_owned_media
+from ..access import active_membership, not_found, release_media, require_owned_media
 from ..db import get_db
-from ..models import Album, AlbumEntry, Contribution, JournalEntry, LiveCapture, Media, Project, User
+from ..models import Album, AlbumEntry, JournalEntry, Project, User
 from ..schemas import AlbumIn, JournalIn, JournalPatch
 from ..security import current_user
 from ..storage import storage
@@ -56,33 +56,6 @@ def _owned_albums(db: Session, album_ids: list[int], user: User) -> list[Album]:
     if len(albums) != len(set(album_ids)):
         raise not_found("That album")
     return list(albums)
-
-
-def release_media(db: Session, media_id: int | None, doomed: list[str]) -> None:
-    """
-    Removes an image once nothing refers to it any more. The stored file's key
-    is added to `doomed`; delete those only after the database commit.
-    """
-    if media_id is None:
-        return
-    media = db.get(Media, media_id)
-    if media is None:
-        return
-    still_used = db.scalar(
-        select(JournalEntry.id).where(
-            or_(JournalEntry.photo_media_id == media_id, JournalEntry.original_media_id == media_id)
-        )
-    )
-    in_capture = db.scalar(select(LiveCapture.id).where(LiveCapture.media_id == media_id))
-    in_contribution = any(
-        item.get("media_id") == media_id
-        for contribution in db.scalars(select(Contribution).where(Contribution.user_id == media.owner_id))
-        for item in contribution.items or []
-    )
-    if still_used or in_capture or in_contribution:
-        return
-    doomed.append(media.storage_key)
-    db.delete(media)
 
 
 # ---------------------------------------------------------------------------

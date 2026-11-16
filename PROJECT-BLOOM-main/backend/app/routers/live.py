@@ -30,12 +30,13 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from ..access import are_friends, not_found
+from ..access import are_friends, not_found, release_media
 from ..config import settings
 from ..db import SessionLocal, get_db
 from ..models import LiveCapture, LiveRoom, Media, User
 from ..schemas import LiveRoomIn
 from ..security import current_user, user_from_token
+from ..storage import storage
 from .friends import find_by_bloom_id
 
 router = APIRouter(prefix="/api/live", tags=["live"])
@@ -123,7 +124,18 @@ async def close_room(room_id: str, user: User = Depends(current_user), db: Sessi
     room = _member_room(db, room_id, user)
     room.status = "closed"
     room.closed_at = datetime.now(timezone.utc)
+    captures = db.scalars(select(LiveCapture).where(LiveCapture.room_id == room_id)).all()
+    media_ids = {c.media_id for c in captures}
+    for capture in captures:
+        db.delete(capture)
+    doomed: list[str] = []
+    if media_ids:
+        db.flush()
+        for media_id in media_ids:
+            release_media(db, media_id, doomed)
     db.commit()
+    for key in doomed:
+        storage.delete(key)
     await hub.close_room(room_id, "The room was closed.")
     return room_out(room, user)
 
@@ -340,11 +352,17 @@ async def live_socket(websocket: WebSocket, room_id: str) -> None:
                     # Shared keys anyone may change, plus your own flower placement.
                     own_key = f"placement:{user.bloom_id}"
                     clean = {k: v for k, v in patch.items() if k in ALLOWED_STATE_KEYS or k == own_key}
-                    room.shared.update(clean)
-                    await hub.broadcast(room_id, {"type": "state", "state": room.shared, "by": user.bloom_id})
+                    if clean:
+                        candidate = {**room.shared, **clean}
+                        if len(json.dumps(candidate, default=str)) <= MAX_MESSAGE_BYTES:
+                            room.shared.update(clean)
+                            await hub.broadcast(room_id, {"type": "state", "state": room.shared, "by": user.bloom_id})
             elif kind == "capture":
                 round_id = str(message.get("round_id", ""))[:24]
-                seconds = min(max(int(message.get("seconds", 3)), 0), 10)
+                try:
+                    seconds = min(max(int(message.get("seconds", 3)), 0), 10)
+                except (TypeError, ValueError):
+                    seconds = 3
                 if round_id:
                     await hub.broadcast(
                         room_id,
@@ -355,7 +373,7 @@ async def live_socket(websocket: WebSocket, room_id: str) -> None:
                 round_id = str(message.get("round_id", ""))[:24]
                 media_id = message.get("media_id")
                 placement = _clean_placement(message.get("placement"))
-                if round_id and isinstance(media_id, int):
+                if round_id and isinstance(media_id, int) and not isinstance(media_id, bool):
                     ok = await run_in_threadpool(_record_capture, room_id, user.id, media_id, round_id, placement)
                     if ok:
                         await hub.broadcast(

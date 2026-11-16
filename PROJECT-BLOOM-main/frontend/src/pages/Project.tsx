@@ -490,11 +490,29 @@ export function ProjectPage({ id }: { id: number }) {
                 <span className="eyebrow">shared</span>
               </header>
               <div className="layout-picker">
-                {LAYOUTS.map((l) => (
-                  <button key={l.id} type="button" aria-pressed={layout === l.id} title={l.hint} onClick={() => void patchProject({ layout: l.id })}>
-                    {l.name}
-                  </button>
-                ))}
+                {LAYOUTS.map((l) => {
+                  const unavailable =
+                    (l.id === "diagonal" && items.length !== 2) ||
+                    (l.id === "overlap" && items.length < 2);
+                  return (
+                    <button
+                      key={l.id}
+                      type="button"
+                      aria-pressed={spec.id === l.id}
+                      disabled={unavailable}
+                      title={
+                        unavailable
+                          ? l.id === "diagonal"
+                            ? "Diagonal works with 2 pictures"
+                            : "Picture in picture needs at least 2 pictures"
+                          : l.hint
+                      }
+                      onClick={() => void patchProject({ layout: l.id })}
+                    >
+                      {l.name}
+                    </button>
+                  );
+                })}
               </div>
             </div>
             <div className="sheet-section">
@@ -616,7 +634,7 @@ export function ProjectPage({ id }: { id: number }) {
                 )}
               </div>
             )}
-            <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => void onUpload(e.target.files?.[0])} />
+            <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; void onUpload(file); }} />
           </section>
           <section className="sheet-section">
             <header>

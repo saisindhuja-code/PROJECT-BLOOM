@@ -17,11 +17,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..access import are_friends, not_found, require_active_member, require_owned_media
+from ..access import are_friends, not_found, release_media, require_active_member, require_owned_media
 from ..db import get_db
 from ..models import Contribution, Project, ProjectMember, User, utcnow
-from ..schemas import ContributionIn, ProjectIn, ProjectPatch
+from ..schemas import ContributionIn, FriendRequestIn, ProjectIn, ProjectPatch
 from ..security import current_user
+from ..storage import storage
 from .friends import find_by_bloom_id
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -32,6 +33,11 @@ MAX_ITEMS = {"twin": 1, "two": 1, "moment": 4}
 
 def _membership(project: Project, user_id: int) -> ProjectMember | None:
     return next((m for m in project.members if m.user_id == user_id), None)
+
+
+def _is_active(project: Project, user_id: int) -> bool:
+    member = _membership(project, user_id)
+    return member is not None and member.status == "active"
 
 
 def project_out(project: Project, viewer: User) -> dict[str, Any]:
@@ -76,7 +82,7 @@ def project_out(project: Project, viewer: User) -> dict[str, Any]:
                 "updated_at": c.updated_at,
             }
             for c in project.contributions
-            if c.user_id in names and _membership(project, c.user_id).status == "active"
+            if c.user_id in names and _is_active(project, c.user_id)
         ],
     }
 
@@ -97,6 +103,18 @@ def _invite(db: Session, project: Project, inviter: User, raw_bloom_id: str) -> 
     if len(project.members) >= MAX_MEMBERS:
         raise HTTPException(status.HTTP_409_CONFLICT, "A Bloom Together project is for two people.")
     project.members.append(ProjectMember(user_id=friend.id, role="member", status="invited"))
+
+
+def _release_ids(db: Session, media_ids: set[int]) -> None:
+    if not media_ids:
+        return
+    doomed: list[str] = []
+    db.flush()
+    for media_id in media_ids:
+        release_media(db, media_id, doomed)
+    db.commit()
+    for key in doomed:
+        storage.delete(key)
 
 
 @router.get("")
@@ -158,9 +176,9 @@ def update_project(
 
 
 @router.post("/{project_id}/invite")
-def invite(project_id: int, body: dict[str, str], user: User = Depends(current_user), db: Session = Depends(get_db)):
+def invite(project_id: int, body: FriendRequestIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     project = _owned_project(db, project_id, user)
-    _invite(db, project, user, str(body.get("bloom_id", ""))[:20])
+    _invite(db, project, user, body.bloom_id)
     db.commit()
     db.refresh(project)
     return project_out(project, user)
@@ -178,13 +196,16 @@ def accept_invite(project_id: int, user: User = Depends(current_user), db: Sessi
     return project_out(project, user)
 
 
-def _remove_member(db: Session, project: Project, member: ProjectMember) -> None:
+def _remove_member(db: Session, project: Project, member: ProjectMember) -> set[int]:
     contribution = db.scalar(
         select(Contribution).where(Contribution.project_id == project.id, Contribution.user_id == member.user_id)
     )
+    released: set[int] = set()
     if contribution is not None:
+        released = {item["media_id"] for item in contribution.items or [] if item.get("media_id")}
         db.delete(contribution)  # their photos stop being visible to the project
     project.members.remove(member)
+    return released
 
 
 @router.post("/{project_id}/decline", status_code=status.HTTP_204_NO_CONTENT)
@@ -193,8 +214,11 @@ def decline_invite(project_id: int, user: User = Depends(current_user), db: Sess
     member = _membership(project, user.id) if project else None
     if member is None or member.status != "invited":
         raise not_found("That invitation")
-    _remove_member(db, project, member)
-    db.commit()
+    released = _remove_member(db, project, member)
+    if released:
+        _release_ids(db, released)
+    else:
+        db.commit()
 
 
 @router.post("/{project_id}/leave", status_code=status.HTTP_204_NO_CONTENT)
@@ -205,8 +229,11 @@ def leave(project_id: int, user: User = Depends(current_user), db: Session = Dep
         raise not_found("That project")
     if member.role == "owner":
         raise HTTPException(status.HTTP_409_CONFLICT, "You started this project. Close it instead of leaving.")
-    _remove_member(db, project, member)
-    db.commit()
+    released = _remove_member(db, project, member)
+    if released:
+        _release_ids(db, released)
+    else:
+        db.commit()
 
 
 @router.delete("/{project_id}/members/{bloom_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -217,14 +244,27 @@ def revoke_member(
     member = next((m for m in project.members if m.user.bloom_id == bloom_id and m.role != "owner"), None)
     if member is None:
         raise not_found("That member")
-    _remove_member(db, project, member)
-    db.commit()
+    released = _remove_member(db, project, member)
+    if released:
+        _release_ids(db, released)
+    else:
+        db.commit()
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def close_project(project_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)) -> None:
-    db.delete(_owned_project(db, project_id, user))
-    db.commit()
+    project = _owned_project(db, project_id, user)
+    released = {
+        item["media_id"]
+        for c in project.contributions
+        for item in c.items or []
+        if item.get("media_id")
+    }
+    db.delete(project)
+    if released:
+        _release_ids(db, released)
+    else:
+        db.commit()
 
 
 @router.put("/{project_id}/contribution")
@@ -250,13 +290,20 @@ def save_contribution(
     contribution = db.scalar(
         select(Contribution).where(Contribution.project_id == project.id, Contribution.user_id == user.id)
     )
+    old_ids: set[int] = set()
     if contribution is None:
         contribution = Contribution(project_id=project.id, user_id=user.id, items=items)
         db.add(contribution)
     else:
+        old_ids = {item["media_id"] for item in contribution.items or [] if item.get("media_id")}
         contribution.items = items
+    new_ids = {item["media_id"] for item in items if item.get("media_id")}
     project.updated_at = utcnow()
     contribution.updated_at = utcnow()
-    db.commit()
+    removed_ids = old_ids - new_ids
+    if removed_ids:
+        _release_ids(db, removed_ids)
+    else:
+        db.commit()
     db.refresh(project)
     return project_out(project, user)

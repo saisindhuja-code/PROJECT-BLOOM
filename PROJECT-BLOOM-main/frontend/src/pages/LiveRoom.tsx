@@ -4,11 +4,11 @@
  * (a shared countdown) or just you. Nothing is saved until you confirm.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { IconJournal, IconMic, IconMicOff, IconVideo, IconVideoOff } from "../components/Icons";
+import { IconFlip, IconJournal, IconMic, IconMicOff, IconVideo, IconVideoOff } from "../components/Icons";
 import { RecipePicker } from "../components/RecipePicker";
 import { SaveDialog, isoFromLocalInput, type SaveDetails } from "../components/SaveDialog";
 import { Loading, SignInNeeded } from "../components/ui";
-import { cameraProblem, captureFrame } from "../cam/camera";
+import { cameraProblem, captureFrame, hasMultipleCameras, type Facing } from "../cam/camera";
 import { normalizeRecipe, type FlowerRecipe } from "../flower/recipe";
 import { canvasToBlob } from "../flower/render";
 import { useOverlayGestures } from "../hooks/useOverlayGestures";
@@ -72,6 +72,10 @@ export function LiveRoomPage({ id }: { id: string }) {
   const previewCanvas = useRef<HTMLCanvasElement>(null);
   const placementRef = useRef(placement);
   placementRef.current = placement;
+  const [facing, setFacing] = useState<Facing>("user");
+  const [canFlip, setCanFlip] = useState(false);
+  const countdownTimer = useRef<number>(0);
+  const mirrored = facing === "user";
   const camOnRef = useRef(camOn);
   camOnRef.current = camOn;
   // The session outlives renders; it calls the latest capture handler through this ref.
@@ -129,9 +133,10 @@ export function LiveRoomPage({ id }: { id: string }) {
   // Your own tracks live in a ref so quick on/off clicks never lose one.
   const tracks = useRef<{ audio: MediaStreamTrack | null; video: MediaStreamTrack | null }>({ audio: null, video: null });
 
-  // Release the camera and microphone only when leaving the room.
+  // Release the camera, microphone, and timers when leaving the room.
   useEffect(
     () => () => {
+      window.clearInterval(countdownTimer.current);
       tracks.current.audio?.stop();
       tracks.current.video?.stop();
     },
@@ -154,6 +159,15 @@ export function LiveRoomPage({ id }: { id: string }) {
 
   // --- devices --------------------------------------------------------------
   const busyDevice = useRef({ audio: false, video: false });
+  const openVideoTrack = async (which: Facing) => {
+    const media = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: which }, width: { ideal: 1280 }, height: { ideal: 960 } },
+    });
+    tracks.current.video = media.getTracks()[0];
+    await session.current?.setTrack("video", tracks.current.video);
+    setCanFlip(await hasMultipleCameras());
+  };
+
   const toggleDevice = async (kind: "video" | "audio") => {
     if (busyDevice.current[kind]) return;
     busyDevice.current[kind] = true;
@@ -166,13 +180,15 @@ export function LiveRoomPage({ id }: { id: string }) {
         await session.current?.setTrack(kind, null);
       } else {
         try {
-          const media = await navigator.mediaDevices.getUserMedia(
-            kind === "video"
-              ? { video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 960 } } }
-              : { audio: { echoCancellation: true, noiseSuppression: true } },
-          );
-          tracks.current[kind] = media.getTracks()[0];
-          await session.current?.setTrack(kind, tracks.current[kind]);
+          if (kind === "video") {
+            await openVideoTrack(facing);
+          } else {
+            const media = await navigator.mediaDevices.getUserMedia({
+              audio: { echoCancellation: true, noiseSuppression: true },
+            });
+            tracks.current.audio = media.getTracks()[0];
+            await session.current?.setTrack("audio", tracks.current.audio);
+          }
         } catch (e) {
           setDeviceError(kind === "video" ? cameraProblem(e) : "The microphone couldn't be started. Check your browser's permission for this site.");
         }
@@ -183,6 +199,25 @@ export function LiveRoomPage({ id }: { id: string }) {
       setMicOn(Boolean(tracks.current.audio));
     } finally {
       busyDevice.current[kind] = false;
+    }
+  };
+
+  const flipCamera = async () => {
+    if (!camOn || busyDevice.current.video) return;
+    busyDevice.current.video = true;
+    setDeviceError("");
+    const next: Facing = facing === "user" ? "environment" : "user";
+    try {
+      tracks.current.video?.stop();
+      await openVideoTrack(next);
+      setFacing(next);
+      setLocalStream(tracks.current.video ? new MediaStream([tracks.current.video]) : null);
+    } catch (e) {
+      setDeviceError(cameraProblem(e));
+      setLocalStream(null);
+      setCamOn(false);
+    } finally {
+      busyDevice.current.video = false;
     }
   };
 
@@ -225,13 +260,19 @@ export function LiveRoomPage({ id }: { id: string }) {
       toast("Your friend took a photo of themselves.");
       return;
     }
+    window.clearInterval(countdownTimer.current);
+    if (seconds <= 0) {
+      setCountdown(0);
+      void takeMyPhoto(roundId);
+      return;
+    }
     let left = seconds;
     setCountdown(left);
-    const tick = window.setInterval(() => {
+    countdownTimer.current = window.setInterval(() => {
       left -= 1;
       setCountdown(Math.max(0, left));
       if (left <= 0) {
-        window.clearInterval(tick);
+        window.clearInterval(countdownTimer.current);
         void takeMyPhoto(roundId);
       }
     }, 1000);
@@ -244,7 +285,7 @@ export function LiveRoomPage({ id }: { id: string }) {
       return;
     }
     try {
-      const shot = captureFrame(video, true);
+      const shot = captureFrame(video, mirrored);
       const media = await uploadImage(await canvasToBlob(shot, "image/jpeg", 0.92), "capture", "capture.jpg");
       session.current?.sendCaptured(roundId, media.id, placementToJson(placementRef.current));
     } catch (e) {
@@ -407,7 +448,7 @@ export function LiveRoomPage({ id }: { id: string }) {
           <div className="video-pair">
             <div ref={localTile} className="video-tile" tabIndex={camOn ? 0 : -1} style={{ touchAction: "none" }}>
               {camOn ? (
-                <video ref={localVideo} autoPlay playsInline muted style={{ transform: "scaleX(-1)" }} />
+                <video ref={localVideo} autoPlay playsInline muted style={{ transform: mirrored ? "scaleX(-1)" : undefined }} />
               ) : (
                 <div className="placeholder">
                   Your camera is off.
@@ -439,6 +480,11 @@ export function LiveRoomPage({ id }: { id: string }) {
             <button type="button" className="round-btn" aria-pressed={micOn} onClick={() => void toggleDevice("audio")} aria-label={micOn ? "Mute microphone" : "Turn microphone on"} title={micOn ? "Mute microphone" : "Turn microphone on"} disabled={ended}>
               {micOn ? <IconMic /> : <IconMicOff />}
             </button>
+            {camOn && canFlip && (
+              <button type="button" className="round-btn" aria-pressed={facing === "environment"} onClick={() => void flipCamera()} aria-label="Flip camera" title="Flip camera" disabled={ended}>
+                <IconFlip />
+              </button>
+            )}
           </div>
           {deviceError && <p className="notice error">{deviceError}</p>}
           <div className="btn-row" style={{ justifyContent: "center" }}>

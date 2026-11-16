@@ -1,5 +1,6 @@
 /** Small shared UI pieces: modal, slider, toggle, toasts, empty states. */
 import { useEffect, useId, useRef, type ReactNode } from "react";
+import { Link } from "../lib/router";
 import { useSession } from "../lib/session";
 import { IconSprig, IconX } from "./Icons";
 
@@ -170,12 +171,12 @@ export function SignInNeeded({ what }: { what: string }) {
       </p>
       {serverOnline && (
         <div className="btn-row">
-          <a className="btn primary" href="/signin">
+          <Link className="btn primary" to="/signin">
             Sign in
-          </a>
-          <a className="btn" href="/signup">
+          </Link>
+          <Link className="btn" to="/signup">
             Create an account
-          </a>
+          </Link>
         </div>
       )}
     </div>

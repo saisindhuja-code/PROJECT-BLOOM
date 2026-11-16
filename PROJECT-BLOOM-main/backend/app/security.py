@@ -118,6 +118,10 @@ _MAX_ATTEMPTS = 10
 def check_login_rate(request: Request) -> None:
     key = request.client.host if request.client else "unknown"
     now = time.monotonic()
+    if len(_attempts) > 1000:
+        stale = [k for k, q in _attempts.items() if not q or now - q[-1] > _WINDOW_SECONDS]
+        for k in stale:
+            del _attempts[k]
     attempts = _attempts[key]
     while attempts and now - attempts[0] > _WINDOW_SECONDS:
         attempts.popleft()

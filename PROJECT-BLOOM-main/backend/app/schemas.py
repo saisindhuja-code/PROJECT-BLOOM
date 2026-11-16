@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from typing import Any, Literal
@@ -9,6 +10,15 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+MAX_STATE_JSON_BYTES = 64 * 1024
+
+
+def _validate_state_size(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if len(json.dumps(value, separators=(",", ":"))) > MAX_STATE_JSON_BYTES:
+        raise ValueError("saved settings are too large")
+    return value
 USERNAME = re.compile(r"^[a-z0-9_.]{3,32}$")
 
 
@@ -166,6 +176,11 @@ class JournalIn(BaseModel):
     project_id: int | None = None
     album_ids: list[int] = Field(default_factory=list, max_length=50)
 
+    @field_validator("edit_state")
+    @classmethod
+    def _edit_state_size(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return _validate_state_size(value)
+
 
 class JournalPatch(BaseModel):
     title: str | None = Field(default=None, max_length=120)
@@ -178,6 +193,11 @@ class JournalPatch(BaseModel):
     keep_original: bool | None = None
     edit_state: dict[str, Any] | None = None
     album_ids: list[int] | None = Field(default=None, max_length=50)
+
+    @field_validator("edit_state")
+    @classmethod
+    def _edit_state_size(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return _validate_state_size(value)
 
 
 class AlbumIn(BaseModel):
@@ -217,6 +237,11 @@ class ProjectPatch(BaseModel):
     layout: Layout | None = None
     theme_state: dict[str, Any] | None = None
     shared_recipe: FlowerRecipe | None = None
+
+    @field_validator("theme_state")
+    @classmethod
+    def _theme_state_size(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return _validate_state_size(value)
 
 
 class ContributionItem(BaseModel):

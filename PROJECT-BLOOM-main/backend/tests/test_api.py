@@ -204,6 +204,9 @@ class BloomApiTest(unittest.TestCase):
         self.assertEqual(client.get(f"/api/media/{photo['id']}").status_code, 404)
         # flower entry needs a recipe
         self.assertEqual(client.post("/api/journal", json={"entry_type": "flower"}).status_code, 422)
+        # oversized edit_state is rejected
+        huge = client.post("/api/journal", json={"entry_type": "flower", "recipe": recipe("big"), "edit_state": {"pad": "x" * 70_000}})
+        self.assertEqual(huge.status_code, 422)
         # album management
         self.assertEqual(client.post("/api/albums", json={"name": "Summer"}).status_code, 409)
         self.assertEqual(client.patch(f"/api/albums/{album['id']}", json={"name": "Spring"}).json()["name"], "Spring")
@@ -294,6 +297,7 @@ class BloomApiTest(unittest.TestCase):
         self.assertEqual(b.post(f"/api/projects/{pid}/leave").status_code, 204)
         self.assertEqual(a.post(f"/api/projects/{pid}/leave").status_code, 409)
         self.assertEqual(a.delete(f"/api/projects/{pid}").status_code, 204)
+        self.assertEqual(a.get(photo_a["url"]).status_code, 404)
 
         # --- Live Bloom ---
         ice = a.get("/api/live/ice").json()
@@ -338,6 +342,7 @@ class BloomApiTest(unittest.TestCase):
                 with ws_connect(ws_url, a, origin="https://evil.example") as ws_e:
                     recv(ws_e)
         self.assertEqual(a.post(f"/api/live/rooms/{room['id']}/close").json()["status"], "closed")
+        self.assertEqual(b.get(capture["url"]).status_code, 404)
 
         # removing a friend
         self.assertEqual(a.delete(f"/api/friends/{me_b['bloom_id']}").status_code, 204)

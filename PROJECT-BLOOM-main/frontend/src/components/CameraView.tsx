@@ -59,9 +59,12 @@ export function CameraView({
   const [handError, setHandError] = useState("");
   const [size, setSize] = useState({ w: 0, h: 0 });
   const tracker = useRef<HandTracker | null>(null);
+  const countdownTimer = useRef<number>(0);
   const placementRef = useRef(placement);
   placementRef.current = placement;
   const mirrored = facing === "user";
+
+  useEffect(() => () => window.clearInterval(countdownTimer.current), []);
 
   const start = useCallback(async (which: Facing) => {
     setStatus("starting");
@@ -230,13 +233,14 @@ export function CameraView({
       onCapture(captureFrame(v, mirrored), placementRef.current, "camera", filterRef.current);
     };
     if (!timer) return go();
+    window.clearInterval(countdownTimer.current);
     let left = timer;
     setCountdown(left);
-    const tick = window.setInterval(() => {
+    countdownTimer.current = window.setInterval(() => {
       left -= 1;
       setCountdown(left);
       if (left <= 0) {
-        window.clearInterval(tick);
+        window.clearInterval(countdownTimer.current);
         go();
       }
     }, 1000);
@@ -323,7 +327,7 @@ export function CameraView({
         {countdown > 0 && <div className="countdown">{countdown}</div>}
         <div key={flash} className={`flash-overlay${flash ? " fire" : ""}`} />
       </div>
-      <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => void upload(e.target.files?.[0])} />
+      <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; void upload(file); }} />
 
       {status === "live" && (
         <div className="cam-controls">
