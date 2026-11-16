@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from . import realtime
 from .config import BACKEND_DIR, settings
-from .routers import auth, designs, friends, inbox, journal, live, media, projects
+from .routers import auth, designs, friends, inbox, journal, live, media, profiles, projects
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("bloom")
@@ -89,7 +89,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-for module in (auth, designs, media, journal, friends, projects, live, inbox, realtime):
+for module in (auth, designs, media, journal, friends, profiles, projects, live, inbox, realtime):
     app.include_router(module.router)
 
 

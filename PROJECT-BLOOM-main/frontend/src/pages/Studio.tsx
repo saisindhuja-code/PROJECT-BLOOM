@@ -11,7 +11,7 @@ import { canvasToBlob, downloadBlob, drawingToCanvas, drawingToSvg, safeFileName
 import { errorMessage } from "../lib/api";
 import { useRouter } from "../lib/router";
 import { useSession } from "../lib/session";
-import type { SavedDesign } from "../lib/store";
+import type { SavedDesign, Visibility } from "../lib/store";
 import { ThemeDots } from "../theme/ThemeMenu";
 import { useTheme } from "../theme/ThemeProvider";
 
@@ -22,6 +22,7 @@ export function StudioPage() {
   const [designs, setDesigns] = useState<SavedDesign[]>([]);
   const [designId, setDesignId] = useState<string | undefined>(query.get("design") ?? undefined);
   const [title, setTitle] = useState("");
+  const [visibility, setVisibility] = useState<Visibility>("private");
   const [transparent, setTransparent] = useState(true);
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -47,6 +48,7 @@ export function StudioPage() {
       setDraftWord(match.recipe.word);
       setDesignId(match.id);
       setTitle(match.title);
+      setVisibility(match.visibility ?? "private");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [designs, wantedDesign]);
@@ -79,7 +81,7 @@ export function StudioPage() {
   const saveDesign = async (asNew: boolean) => {
     setBusy(true);
     try {
-      const saved = await store.saveDesign(recipe, title || recipe.word, asNew ? undefined : designId);
+      const saved = await store.saveDesign(recipe, title || recipe.word, asNew ? undefined : designId, visibility);
       setDesignId(saved.id);
       setTitle(saved.title);
       toast(store.kind === "server" ? "Design saved to your account." : "Design saved on this device.");
@@ -94,7 +96,7 @@ export function StudioPage() {
   const addToJournal = async () => {
     setBusy(true);
     try {
-      const entry = await store.createEntry({ entry_type: "flower", title: title || recipe.word, recipe });
+      const entry = await store.createEntry({ entry_type: "flower", title: title || recipe.word, recipe, visibility });
       toast("Pressed into your journal.");
       navigate(`/journal/${entry.id}`);
     } catch (error) {
@@ -245,6 +247,16 @@ export function StudioPage() {
               <span>Design name</span>
               <input type="text" value={title} maxLength={80} placeholder={recipe.word} onChange={(e) => setTitle(e.target.value)} />
             </label>
+            {store.kind === "server" && (
+              <label className="field">
+                <span>Who can see this</span>
+                <select value={visibility} onChange={(e) => setVisibility(e.target.value as Visibility)}>
+                  <option value="private">Private (only me)</option>
+                  <option value="friends">Friends</option>
+                  <option value="public">Public profile</option>
+                </select>
+              </label>
+            )}
             <div className="btn-row">
               <button type="button" className="btn small primary" disabled={busy || !hasFlower} onClick={() => void saveDesign(false)}>
                 {designId ? "Save changes" : "Save design"}
@@ -270,6 +282,7 @@ export function StudioPage() {
                       setDraftWord(design.recipe.word);
                       setDesignId(design.id);
                       setTitle(design.title);
+                      setVisibility(design.visibility ?? "private");
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
@@ -277,6 +290,7 @@ export function StudioPage() {
                         setDraftWord(design.recipe.word);
                         setDesignId(design.id);
                         setTitle(design.title);
+                        setVisibility(design.visibility ?? "private");
                       }
                     }}
                   >

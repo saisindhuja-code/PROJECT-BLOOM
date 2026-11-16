@@ -32,6 +32,9 @@ class User(Base):
     bloom_id: Mapped[str] = mapped_column(String(16), unique=True, index=True)
     username: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(48))
+    bio: Mapped[str] = mapped_column(String(500), default="")
+    avatar_media_id: Mapped[int | None] = mapped_column(ForeignKey("media.id", ondelete="SET NULL"), nullable=True)
+    privacy_settings: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     password_hash: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -43,6 +46,7 @@ class FlowerDesign(Base):
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(80))
     recipe: Mapped[dict[str, Any]] = mapped_column(JSON)
+    visibility: Mapped[str] = mapped_column(String(12), default="private")  # private | friends | public
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -54,7 +58,7 @@ class Media(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    kind: Mapped[str] = mapped_column(String(20))  # original | photo | flower | contribution | capture | avatar | sticker | chat_image | voice
+    kind: Mapped[str] = mapped_column(String(20))
     storage_key: Mapped[str] = mapped_column(String(255), unique=True)
     content_type: Mapped[str] = mapped_column(String(40))
     width: Mapped[int] = mapped_column(Integer)
@@ -80,6 +84,7 @@ class Album(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(60))
+    visibility: Mapped[str] = mapped_column(String(12), default="private")  # private | friends | public
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -100,6 +105,7 @@ class JournalEntry(Base):
     edit_state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
     participants: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
+    visibility: Mapped[str] = mapped_column(String(12), default="private")  # private | friends | public
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

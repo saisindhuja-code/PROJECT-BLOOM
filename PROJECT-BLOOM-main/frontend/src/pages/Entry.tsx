@@ -9,7 +9,7 @@ import { canvasToBlob, downloadBlob, drawingToCanvas, safeFileName } from "../fl
 import { errorMessage } from "../lib/api";
 import { Link, useRouter } from "../lib/router";
 import { useSession } from "../lib/session";
-import { storeFor, type JournalEntry } from "../lib/store";
+import { storeFor, type JournalEntry, type Visibility } from "../lib/store";
 
 function toLocalInput(iso: string): string {
   const d = new Date(iso);
@@ -23,7 +23,7 @@ export function EntryPage({ id }: { id: string }) {
   const { navigate } = useRouter();
   const [entry, setEntry] = useState<JournalEntry | null>(null);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({ title: "", caption: "", notes: "", takenAt: "", albumIds: [] as string[] });
+  const [form, setForm] = useState({ title: "", caption: "", notes: "", takenAt: "", albumIds: [] as string[], visibility: "private" as Visibility });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -33,7 +33,7 @@ export function EntryPage({ id }: { id: string }) {
       .then((e) => {
         if (cancelled) return;
         setEntry(e);
-        setForm({ title: e.title, caption: e.caption, notes: e.notes, takenAt: toLocalInput(e.taken_at), albumIds: e.album_ids });
+        setForm({ title: e.title, caption: e.caption, notes: e.notes, takenAt: toLocalInput(e.taken_at), albumIds: e.album_ids, visibility: e.visibility ?? "private" });
       })
       .catch((e) => !cancelled && setError(errorMessage(e)));
     return () => {
@@ -64,7 +64,8 @@ export function EntryPage({ id }: { id: string }) {
     form.caption !== entry.caption ||
     form.notes !== entry.notes ||
     form.takenAt !== toLocalInput(entry.taken_at) ||
-    JSON.stringify([...form.albumIds].sort()) !== JSON.stringify([...entry.album_ids].sort());
+    JSON.stringify([...form.albumIds].sort()) !== JSON.stringify([...entry.album_ids].sort()) ||
+    form.visibility !== entry.visibility;
 
   const run = async (task: () => Promise<void>) => {
     setBusy(true);
@@ -85,6 +86,7 @@ export function EntryPage({ id }: { id: string }) {
         notes: form.notes,
         taken_at: new Date(form.takenAt).toISOString(),
         album_ids: form.albumIds,
+        visibility: form.visibility,
       });
       setEntry(updated);
       toast("Saved.");
@@ -239,6 +241,16 @@ export function EntryPage({ id }: { id: string }) {
           </div>
           <div className="sheet-section">
             <AlbumPicker value={form.albumIds} onChange={(albumIds) => setForm({ ...form, albumIds })} />
+            {entry.source === "server" && (
+              <label className="field">
+                <span>Who can see this entry</span>
+                <select value={form.visibility} onChange={(e) => setForm({ ...form, visibility: e.target.value as Visibility })}>
+                  <option value="private">Private (only me)</option>
+                  <option value="friends">Friends</option>
+                  <option value="public">Public profile</option>
+                </select>
+              </label>
+            )}
           </div>
           <div className="sheet-section">
             <button type="submit" className="btn primary" disabled={!dirty || busy} style={{ justifySelf: "start" }}>

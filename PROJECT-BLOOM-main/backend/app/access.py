@@ -17,11 +17,40 @@ from .models import (
     ProjectMember,
     User,
 )
+from .schemas import PrivacySettings
 
 
 def not_found(what: str = "That item") -> HTTPException:
-    # 404 instead of 403 so people cannot probe for other users' private items.
     return HTTPException(status.HTTP_404_NOT_FOUND, f"{what} was not found.")
+
+
+def privacy_for(user: User) -> PrivacySettings:
+    try:
+        return PrivacySettings.model_validate(user.privacy_settings or {})
+    except Exception:
+        return PrivacySettings()
+
+
+def friendship_between(db: Session, a: int, b: int) -> Friendship | None:
+    return db.scalar(
+        select(Friendship).where(
+            or_(
+                and_(Friendship.requester_id == a, Friendship.addressee_id == b),
+                and_(Friendship.requester_id == b, Friendship.addressee_id == a),
+            )
+        )
+    )
+
+
+def relation_between(db: Session, viewer_id: int, target_id: int) -> str:
+    if viewer_id == target_id:
+        return "self"
+    link = friendship_between(db, viewer_id, target_id)
+    if link is None:
+        return "none"
+    if link.status == "accepted":
+        return "friend"
+    return "request-sent" if link.requester_id == viewer_id else "request-received"
 
 
 def are_friends(db: Session, a: int, b: int) -> bool:
@@ -37,6 +66,23 @@ def are_friends(db: Session, a: int, b: int) -> bool:
         )
         is not None
     )
+
+
+def visibility_allows(db: Session, owner_id: int, visibility: str, viewer: User) -> bool:
+    if viewer.id == owner_id:
+        return True
+    if visibility == "public":
+        return True
+    if visibility == "friends":
+        return are_friends(db, owner_id, viewer.id)
+    return False
+
+
+def can_view_profile(db: Session, target: User, viewer: User) -> bool:
+    if viewer.id == target.id:
+        return True
+    vis = privacy_for(target).profile_visibility
+    return visibility_allows(db, target.id, vis, viewer)
 
 
 def active_membership(db: Session, project_id: int, user_id: int) -> ProjectMember | None:
@@ -68,6 +114,14 @@ def require_owned_media(db: Session, media_id: int | None, user: User) -> Media 
 def can_view_media(db: Session, media: Media, user: User) -> bool:
     if media.owner_id == user.id:
         return True
+
+    # Profile avatar: visible when the owner's profile is visible to the viewer.
+    if media.kind == "avatar":
+        owner = db.get(User, media.owner_id)
+        if owner is not None and owner.avatar_media_id == media.id:
+            return can_view_profile(db, owner, user)
+
+    # Shared through a project contribution.
     shared_projects = db.scalars(
         select(Contribution.project_id)
         .join(
@@ -85,9 +139,10 @@ def can_view_media(db: Session, media: Media, user: User) -> bool:
             select(Contribution).where(Contribution.project_id == project_id, Contribution.user_id == media.owner_id)
         )
         if contribution and any(item.get("media_id") == media.id for item in contribution.items or []):
-            owner_still_member = active_membership(db, project_id, media.owner_id)
-            if owner_still_member is not None:
+            if active_membership(db, project_id, media.owner_id) is not None:
                 return True
+
+    # Shared inside a live room.
     capture = db.scalar(
         select(LiveCapture)
         .join(LiveRoom, LiveRoom.id == LiveCapture.room_id)
@@ -96,7 +151,21 @@ def can_view_media(db: Session, media: Media, user: User) -> bool:
             or_(LiveRoom.host_id == user.id, LiveRoom.guest_id == user.id),
         )
     )
-    return capture is not None
+    if capture is not None:
+        return True
+
+    # Public or friends-shared journal entry finished photo (never original_media_id).
+    entries = db.scalars(
+        select(JournalEntry).where(
+            JournalEntry.photo_media_id == media.id,
+            JournalEntry.visibility.in_(["public", "friends"]),
+        )
+    ).all()
+    for entry in entries:
+        if visibility_allows(db, entry.owner_id, entry.visibility, user):
+            return True
+
+    return False
 
 
 def release_media(db: Session, media_id: int | None, doomed: list[str]) -> None:
@@ -109,6 +178,7 @@ def release_media(db: Session, media_id: int | None, doomed: list[str]) -> None:
     media = db.get(Media, media_id)
     if media is None:
         return
+    used_as_avatar = db.scalar(select(User.id).where(User.avatar_media_id == media_id))
     still_used = db.scalar(
         select(JournalEntry.id).where(
             or_(JournalEntry.photo_media_id == media_id, JournalEntry.original_media_id == media_id)
@@ -120,7 +190,7 @@ def release_media(db: Session, media_id: int | None, doomed: list[str]) -> None:
         for contribution in db.scalars(select(Contribution).where(Contribution.user_id == media.owner_id))
         for item in contribution.items or []
     )
-    if still_used or in_capture or in_contribution:
+    if used_as_avatar or still_used or in_capture or in_contribution:
         return
     doomed.append(media.storage_key)
     db.delete(media)

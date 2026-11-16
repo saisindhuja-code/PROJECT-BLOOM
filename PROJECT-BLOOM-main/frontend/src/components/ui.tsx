@@ -1,5 +1,6 @@
 /** Small shared UI pieces: modal, slider, toggle, toasts, empty states. */
 import { useEffect, useId, useRef, type ReactNode } from "react";
+import { mediaUrl } from "../lib/api";
 import { Link } from "../lib/router";
 import { useSession } from "../lib/session";
 import { IconSprig, IconX } from "./Icons";
@@ -144,9 +145,12 @@ export function initials(name: string): string {
   return name.trim().slice(0, 1).toUpperCase() || "·";
 }
 
-export function Avatar({ name }: { name: string }) {
+export function Avatar({ name, src }: { name: string; src?: string | null }) {
   const hue = Array.from(name).reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 360, 7);
   const palette = ["#e7a3b5", "#9db39a", "#d9b26f", "#b9a2e8", "#f6d3dc"];
+  if (src) {
+    return <img className="avatar avatar-img" src={mediaUrl(src) ?? src} alt="" aria-hidden="true" />;
+  }
   return (
     <span className="avatar" style={{ background: palette[hue % palette.length] }} aria-hidden="true">
       {initials(name)}

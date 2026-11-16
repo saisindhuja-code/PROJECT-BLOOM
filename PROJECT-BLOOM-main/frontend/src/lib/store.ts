@@ -1,17 +1,15 @@
 /**
  * One interface for the journal, albums and saved designs, with two storage
- * backends:
- *   - ServerStore: your Bloom account (FastAPI + database + private files)
- *   - LocalStore:  this device only (IndexedDB), used without an account or
- *                  when the server is unreachable
+ * backends: ServerStore (Bloom account) and LocalStore (IndexedDB).
  */
 
 import type { FlowerRecipe } from "../flower/recipe";
 import { normalizeRecipe } from "../flower/recipe";
-import { api, mediaUrl, uploadImage } from "./api";
+import { api, mediaUrl, uploadImage, type Visibility } from "./api";
 import * as local from "./localdb";
 
 export type EntryType = "flower" | "photo" | "composition";
+export type { Visibility };
 
 export interface Participant {
   bloom_id: string;
@@ -33,11 +31,11 @@ export interface JournalEntry {
   project_id: number | null;
   participants: Participant[];
   album_ids: string[];
+  visibility: Visibility;
   created_at: string;
   updated_at: string;
 }
 
-/** Everything needed to reopen an edit (kept with photo and composition entries). */
 export interface EditState {
   version?: number;
   theme?: { preset: string; name?: string; [key: string]: unknown };
@@ -48,6 +46,7 @@ export interface EditState {
 export interface Album {
   id: string;
   name: string;
+  visibility: Visibility;
   entry_count: number;
 }
 
@@ -55,6 +54,7 @@ export interface SavedDesign {
   id: string;
   title: string;
   recipe: FlowerRecipe;
+  visibility: Visibility;
   updated_at: string;
 }
 
@@ -70,6 +70,7 @@ export interface NewEntry {
   edit_state?: EditState | null;
   project_id?: number | null;
   album_ids?: string[];
+  visibility?: Visibility;
 }
 
 export interface EntryPatch {
@@ -83,6 +84,7 @@ export interface EntryPatch {
   keep_original?: boolean;
   edit_state?: EditState;
   album_ids?: string[];
+  visibility?: Visibility;
 }
 
 export interface EntryFilter {
@@ -100,11 +102,12 @@ export interface BloomStore {
   duplicateEntry(id: string): Promise<JournalEntry>;
   deleteEntry(id: string): Promise<void>;
   listAlbums(): Promise<Album[]>;
-  createAlbum(name: string): Promise<Album>;
+  createAlbum(name: string, visibility?: Visibility): Promise<Album>;
   renameAlbum(id: string, name: string): Promise<Album>;
+  updateAlbum(id: string, patch: { name?: string; visibility?: Visibility }): Promise<Album>;
   deleteAlbum(id: string): Promise<void>;
   listDesigns(): Promise<SavedDesign[]>;
-  saveDesign(recipe: FlowerRecipe, title: string, id?: string): Promise<SavedDesign>;
+  saveDesign(recipe: FlowerRecipe, title: string, id?: string, visibility?: Visibility): Promise<SavedDesign>;
   deleteDesign(id: string): Promise<void>;
 }
 
@@ -128,6 +131,7 @@ interface ServerEntry {
   project_id: number | null;
   participants: Participant[];
   album_ids: number[];
+  visibility?: Visibility;
   created_at: string;
   updated_at: string;
 }
@@ -150,6 +154,7 @@ function fromServer(entry: ServerEntry): JournalEntry {
     project_id: entry.project_id,
     participants: entry.participants ?? [],
     album_ids: entry.album_ids.map((id) => `s:${id}`),
+    visibility: entry.visibility ?? "private",
     created_at: entry.created_at,
     updated_at: entry.updated_at,
   };
@@ -187,6 +192,7 @@ export class ServerStore implements BloomStore {
         edit_state: entry.edit_state ?? null,
         project_id: entry.project_id ?? null,
         album_ids: (entry.album_ids ?? []).map(serverId),
+        visibility: entry.visibility ?? "private",
       },
     });
     return fromServer(created);
@@ -194,7 +200,7 @@ export class ServerStore implements BloomStore {
 
   async updateEntry(id: string, patch: EntryPatch): Promise<JournalEntry> {
     const body: Record<string, unknown> = {};
-    for (const key of ["title", "caption", "notes", "taken_at", "recipe", "keep_original", "edit_state"] as const) {
+    for (const key of ["title", "caption", "notes", "taken_at", "recipe", "keep_original", "edit_state", "visibility"] as const) {
       if (patch[key] !== undefined) body[key] = patch[key];
     }
     if (patch.album_ids) body.album_ids = patch.album_ids.map(serverId);
@@ -212,21 +218,27 @@ export class ServerStore implements BloomStore {
   }
 
   async listAlbums(): Promise<Album[]> {
-    const rows = await api<Array<{ id: number; name: string; entry_count: number }>>("/api/albums");
-    return rows.map((a) => ({ id: `s:${a.id}`, name: a.name, entry_count: a.entry_count }));
+    const rows = await api<Array<{ id: number; name: string; visibility?: Visibility; entry_count: number }>>("/api/albums");
+    return rows.map((a) => ({ id: `s:${a.id}`, name: a.name, visibility: a.visibility ?? "private", entry_count: a.entry_count }));
   }
 
-  async createAlbum(name: string): Promise<Album> {
-    const a = await api<{ id: number; name: string; entry_count: number }>("/api/albums", { body: { name } });
-    return { id: `s:${a.id}`, name: a.name, entry_count: a.entry_count };
+  async createAlbum(name: string, visibility: Visibility = "private"): Promise<Album> {
+    const a = await api<{ id: number; name: string; visibility?: Visibility; entry_count: number }>("/api/albums", {
+      body: { name, visibility },
+    });
+    return { id: `s:${a.id}`, name: a.name, visibility: a.visibility ?? "private", entry_count: a.entry_count };
   }
 
   async renameAlbum(id: string, name: string): Promise<Album> {
-    const a = await api<{ id: number; name: string; entry_count: number }>(`/api/albums/${serverId(id)}`, {
+    return this.updateAlbum(id, { name });
+  }
+
+  async updateAlbum(id: string, patch: { name?: string; visibility?: Visibility }): Promise<Album> {
+    const a = await api<{ id: number; name: string; visibility?: Visibility; entry_count: number }>(`/api/albums/${serverId(id)}`, {
       method: "PATCH",
-      body: { name },
+      body: patch,
     });
-    return { id: `s:${a.id}`, name: a.name, entry_count: a.entry_count };
+    return { id: `s:${a.id}`, name: a.name, visibility: a.visibility ?? "private", entry_count: a.entry_count };
   }
 
   async deleteAlbum(id: string): Promise<void> {
@@ -234,19 +246,31 @@ export class ServerStore implements BloomStore {
   }
 
   async listDesigns(): Promise<SavedDesign[]> {
-    const rows = await api<Array<{ id: number; title: string; recipe: unknown; updated_at: string }>>("/api/designs");
-    return rows.map((d) => ({ id: `s:${d.id}`, title: d.title, recipe: normalizeRecipe(d.recipe), updated_at: d.updated_at }));
+    const rows = await api<Array<{ id: number; title: string; recipe: unknown; visibility?: Visibility; updated_at: string }>>("/api/designs");
+    return rows.map((d) => ({
+      id: `s:${d.id}`,
+      title: d.title,
+      recipe: normalizeRecipe(d.recipe),
+      visibility: d.visibility ?? "private",
+      updated_at: d.updated_at,
+    }));
   }
 
-  async saveDesign(recipe: FlowerRecipe, title: string, id?: string): Promise<SavedDesign> {
-    const body = { title, recipe };
+  async saveDesign(recipe: FlowerRecipe, title: string, id?: string, visibility: Visibility = "private"): Promise<SavedDesign> {
+    const body = { title, recipe, visibility };
     const d = id?.startsWith("s:")
-      ? await api<{ id: number; title: string; recipe: unknown; updated_at: string }>(`/api/designs/${serverId(id)}`, {
+      ? await api<{ id: number; title: string; recipe: unknown; visibility?: Visibility; updated_at: string }>(`/api/designs/${serverId(id)}`, {
           method: "PUT",
           body,
         })
-      : await api<{ id: number; title: string; recipe: unknown; updated_at: string }>("/api/designs", { body });
-    return { id: `s:${d.id}`, title: d.title, recipe: normalizeRecipe(d.recipe), updated_at: d.updated_at };
+      : await api<{ id: number; title: string; recipe: unknown; visibility?: Visibility; updated_at: string }>("/api/designs", { body });
+    return {
+      id: `s:${d.id}`,
+      title: d.title,
+      recipe: normalizeRecipe(d.recipe),
+      visibility: d.visibility ?? "private",
+      updated_at: d.updated_at,
+    };
   }
 
   async deleteDesign(id: string): Promise<void> {
@@ -258,7 +282,8 @@ export class ServerStore implements BloomStore {
 // This device (IndexedDB)
 // ---------------------------------------------------------------------------
 
-interface LocalEntryRow extends Omit<JournalEntry, "photoUrl" | "originalUrl" | "source"> {
+interface LocalEntryRow extends Omit<JournalEntry, "photoUrl" | "originalUrl" | "source" | "visibility"> {
+  visibility?: Visibility;
   photoBlobId: string | null;
   originalBlobId: string | null;
 }
@@ -266,12 +291,14 @@ interface LocalEntryRow extends Omit<JournalEntry, "photoUrl" | "originalUrl" | 
 interface LocalAlbumRow {
   id: string;
   name: string;
+  visibility?: Visibility;
 }
 
 interface LocalDesignRow {
   id: string;
   title: string;
   recipe: FlowerRecipe;
+  visibility?: Visibility;
   updated_at: string;
 }
 
@@ -300,7 +327,13 @@ export class LocalStore implements BloomStore {
 
   private async hydrate(row: LocalEntryRow): Promise<JournalEntry> {
     const { photoBlobId, originalBlobId, ...rest } = row;
-    return { ...rest, source: "local", photoUrl: await blobUrl(photoBlobId), originalUrl: await blobUrl(originalBlobId) };
+    return {
+      ...rest,
+      visibility: row.visibility ?? "private",
+      source: "local",
+      photoUrl: await blobUrl(photoBlobId),
+      originalUrl: await blobUrl(originalBlobId),
+    };
   }
 
   private async row(id: string): Promise<LocalEntryRow> {
@@ -337,6 +370,7 @@ export class LocalStore implements BloomStore {
       project_id: entry.project_id ?? null,
       participants: [],
       album_ids: entry.album_ids ?? [],
+      visibility: entry.visibility ?? "private",
       created_at: now,
       updated_at: now,
       photoBlobId: entry.photo ? await local.putBlob(entry.photo) : null,
@@ -372,7 +406,6 @@ export class LocalStore implements BloomStore {
     await this.collectBlobs();
   }
 
-  /** Deletes stored images that no entry uses any more. */
   private async collectBlobs(): Promise<void> {
     const used = new Set<string>();
     for (const e of await local.getAll<LocalEntryRow>("entries")) {
@@ -393,24 +426,34 @@ export class LocalStore implements BloomStore {
     const albums = await local.getAll<LocalAlbumRow>("albums");
     const entries = await local.getAll<LocalEntryRow>("entries");
     return albums
-      .map((a) => ({ ...a, entry_count: entries.filter((e) => e.album_ids.includes(a.id)).length }))
+      .map((a) => ({
+        id: a.id,
+        name: a.name,
+        visibility: a.visibility ?? "private",
+        entry_count: entries.filter((e) => e.album_ids.includes(a.id)).length,
+      }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  async createAlbum(name: string): Promise<Album> {
+  async createAlbum(name: string, visibility: Visibility = "private"): Promise<Album> {
     const albums = await local.getAll<LocalAlbumRow>("albums");
     if (albums.some((a) => a.name.toLowerCase() === name.trim().toLowerCase())) {
       throw new Error("You already have an album with that name.");
     }
-    const album = { id: `l:${local.uid()}`, name: name.trim() };
+    const album = { id: `l:${local.uid()}`, name: name.trim(), visibility };
     await local.put("albums", album);
     return { ...album, entry_count: 0 };
   }
 
   async renameAlbum(id: string, name: string): Promise<Album> {
+    return this.updateAlbum(id, { name });
+  }
+
+  async updateAlbum(id: string, patch: { name?: string; visibility?: Visibility }): Promise<Album> {
     const album = await local.get<LocalAlbumRow>("albums", id);
     if (!album) throw new Error("That album was not found.");
-    album.name = name.trim();
+    if (patch.name !== undefined) album.name = patch.name.trim();
+    if (patch.visibility !== undefined) album.visibility = patch.visibility;
     await local.put("albums", album);
     return (await this.listAlbums()).find((a) => a.id === id)!;
   }
@@ -428,19 +471,20 @@ export class LocalStore implements BloomStore {
   async listDesigns(): Promise<SavedDesign[]> {
     const rows = await local.getAll<LocalDesignRow>("designs");
     return rows
-      .map((d) => ({ ...d, recipe: normalizeRecipe(d.recipe) }))
+      .map((d) => ({ ...d, visibility: d.visibility ?? "private", recipe: normalizeRecipe(d.recipe) }))
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   }
 
-  async saveDesign(recipe: FlowerRecipe, title: string, id?: string): Promise<SavedDesign> {
+  async saveDesign(recipe: FlowerRecipe, title: string, id?: string, visibility: Visibility = "private"): Promise<SavedDesign> {
     const row: LocalDesignRow = {
       id: id?.startsWith("l:") ? id : `l:${local.uid()}`,
       title: title.trim() || recipe.word,
       recipe,
+      visibility,
       updated_at: new Date().toISOString(),
     };
     await local.put("designs", row);
-    return row;
+    return { ...row, visibility: row.visibility ?? "private" };
   }
 
   async deleteDesign(id: string): Promise<void> {
@@ -456,7 +500,6 @@ export class LocalStore implements BloomStore {
     return { entries: entries.length, designs: designs.length, albums: albums.length };
   }
 
-  /** Copies everything on this device into the signed-in account, then clears it here. */
   async moveTo(server: ServerStore, onProgress?: (done: number, total: number) => void): Promise<number> {
     const albums = await local.getAll<LocalAlbumRow>("albums");
     const existing = await server.listAlbums();
@@ -497,7 +540,6 @@ export class LocalStore implements BloomStore {
 export const serverStore = new ServerStore();
 export const localStore = new LocalStore();
 
-/** The store an entry id belongs to ("s:12" = account, "l:…" = this device). */
 export function storeFor(id: string, fallback: BloomStore): BloomStore {
   if (id.startsWith("s:")) return serverStore;
   if (id.startsWith("l:")) return localStore;

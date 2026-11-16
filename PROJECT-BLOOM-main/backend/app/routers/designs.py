@@ -20,6 +20,7 @@ def design_out(design: FlowerDesign) -> DesignOut:
         id=design.id,
         title=design.title,
         recipe=design.recipe,
+        visibility=design.visibility,
         created_at=design.created_at,
         updated_at=design.updated_at,
     )
@@ -46,6 +47,7 @@ def create_design(body: DesignIn, user: User = Depends(current_user), db: Sessio
         owner_id=user.id,
         title=body.title.strip() or body.recipe.word,
         recipe=body.recipe.model_dump(),
+        visibility=body.visibility,
     )
     db.add(design)
     db.commit()
@@ -64,6 +66,7 @@ def update_design(
     design = _owned(db, design_id, user)
     design.title = body.title.strip() or body.recipe.word
     design.recipe = body.recipe.model_dump()
+    design.visibility = body.visibility
     db.commit()
     return design_out(design)
 

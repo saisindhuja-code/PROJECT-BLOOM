@@ -1,4 +1,4 @@
-"""The Bloom Journal: entries, albums, search."""
+"""The Bloom Journal: entries, albums, search, visibility."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from ..access import active_membership, not_found, release_media, require_owned_media
 from ..db import get_db
 from ..models import Album, AlbumEntry, JournalEntry, Project, User
-from ..schemas import AlbumIn, JournalIn, JournalPatch
+from ..schemas import AlbumIn, AlbumPatch, JournalIn, JournalPatch
 from ..security import current_user
 from ..storage import storage
 
@@ -37,6 +37,7 @@ def entry_out(entry: JournalEntry) -> dict[str, Any]:
         "project_id": entry.project_id,
         "participants": entry.participants or [],
         "album_ids": sorted(a.id for a in entry.albums),
+        "visibility": entry.visibility,
         "created_at": entry.created_at,
         "updated_at": entry.updated_at,
     }
@@ -56,11 +57,6 @@ def _owned_albums(db: Session, album_ids: list[int], user: User) -> list[Album]:
     if len(albums) != len(set(album_ids)):
         raise not_found("That album")
     return list(albums)
-
-
-# ---------------------------------------------------------------------------
-# Entries
-# ---------------------------------------------------------------------------
 
 
 @router.get("/journal")
@@ -109,7 +105,6 @@ def create_entry(body: JournalIn, user: User = Depends(current_user), db: Sessio
             if m.status == "active"
         ]
     elif isinstance((body.edit_state or {}).get("participants"), list):
-        # Live Bloom saves list who was in the room.
         participants = [
             {"bloom_id": str(p.get("bloom_id", ""))[:16], "display_name": str(p.get("display_name", ""))[:48]}
             for p in body.edit_state["participants"][:4]
@@ -128,6 +123,7 @@ def create_entry(body: JournalIn, user: User = Depends(current_user), db: Sessio
         edit_state=body.edit_state,
         project_id=body.project_id,
         participants=participants,
+        visibility=body.visibility,
     )
     entry.albums = _owned_albums(db, body.album_ids, user)
     db.add(entry)
@@ -157,6 +153,8 @@ def update_entry(
         entry.taken_at = body.taken_at
     if body.recipe is not None:
         entry.recipe = body.recipe.model_dump()
+    if body.visibility is not None:
+        entry.visibility = body.visibility
     if body.photo_media_id is not None and body.photo_media_id != entry.photo_media_id:
         require_owned_media(db, body.photo_media_id, user)
         released.append(entry.photo_media_id)
@@ -198,6 +196,7 @@ def duplicate_entry(entry_id: int, user: User = Depends(current_user), db: Sessi
         edit_state=entry.edit_state,
         project_id=entry.project_id,
         participants=entry.participants,
+        visibility="private",
     )
     copy.albums = list(entry.albums)
     db.add(copy)
@@ -219,14 +218,15 @@ def delete_entry(entry_id: int, user: User = Depends(current_user), db: Session 
         storage.delete(key)
 
 
-# ---------------------------------------------------------------------------
-# Albums (collections)
-# ---------------------------------------------------------------------------
-
-
 def album_out(db: Session, album: Album) -> dict[str, Any]:
     count = len(db.scalars(select(AlbumEntry.entry_id).where(AlbumEntry.album_id == album.id)).all())
-    return {"id": album.id, "name": album.name, "entry_count": count, "created_at": album.created_at}
+    return {
+        "id": album.id,
+        "name": album.name,
+        "visibility": album.visibility,
+        "entry_count": count,
+        "created_at": album.created_at,
+    }
 
 
 @router.get("/albums")
@@ -237,7 +237,7 @@ def list_albums(user: User = Depends(current_user), db: Session = Depends(get_db
 
 @router.post("/albums", status_code=status.HTTP_201_CREATED)
 def create_album(body: AlbumIn, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
-    album = Album(owner_id=user.id, name=body.name)
+    album = Album(owner_id=user.id, name=body.name, visibility=body.visibility)
     db.add(album)
     try:
         db.commit()
@@ -248,13 +248,16 @@ def create_album(body: AlbumIn, user: User = Depends(current_user), db: Session 
 
 
 @router.patch("/albums/{album_id}")
-def rename_album(
-    album_id: int, body: AlbumIn, user: User = Depends(current_user), db: Session = Depends(get_db)
+def update_album(
+    album_id: int, body: AlbumPatch, user: User = Depends(current_user), db: Session = Depends(get_db)
 ) -> dict[str, Any]:
     album = db.get(Album, album_id)
     if album is None or album.owner_id != user.id:
         raise not_found("That album")
-    album.name = body.name
+    if body.name is not None:
+        album.name = body.name
+    if body.visibility is not None:
+        album.visibility = body.visibility
     try:
         db.commit()
     except IntegrityError as exc:
@@ -268,5 +271,5 @@ def delete_album(album_id: int, user: User = Depends(current_user), db: Session 
     album = db.get(Album, album_id)
     if album is None or album.owner_id != user.id:
         raise not_found("That album")
-    db.delete(album)  # entries stay in the journal
+    db.delete(album)
     db.commit()

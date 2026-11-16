@@ -13,6 +13,8 @@ HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 USERNAME = re.compile(r"^[a-z0-9_.]{3,32}$")
 MAX_STATE_JSON_BYTES = 64 * 1024
 
+Visibility = Literal["private", "friends", "public"]
+
 
 def _validate_state_size(value: dict[str, Any] | None) -> dict[str, Any] | None:
     if value is None:
@@ -68,6 +70,14 @@ class FlowerRecipe(BaseModel):
         return cleaned
 
 
+class PrivacySettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    profile_visibility: Visibility = "friends"
+    searchable: bool = True
+    show_online_status: bool = True
+    allow_friend_requests: bool = True
+
+
 class RegisterIn(BaseModel):
     username: str
     display_name: str = Field(min_length=1, max_length=48)
@@ -100,6 +110,9 @@ class UserOut(BaseModel):
     bloom_id: str
     username: str
     display_name: str
+    bio: str = ""
+    avatar_url: str | None = None
+    privacy_settings: PrivacySettings = Field(default_factory=PrivacySettings)
     created_at: datetime
 
 
@@ -111,18 +124,50 @@ class PublicUser(BaseModel):
 
 
 class ProfileUpdate(BaseModel):
-    display_name: str = Field(min_length=1, max_length=48)
+    display_name: str | None = Field(default=None, min_length=1, max_length=48)
+    bio: str | None = Field(default=None, max_length=500)
+    avatar_media_id: int | None = None
+    remove_avatar: bool = False
+    privacy_settings: PrivacySettings | None = None
+
+    @field_validator("display_name")
+    @classmethod
+    def _display(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("please add a name")
+        return cleaned
+
+    @field_validator("bio")
+    @classmethod
+    def _bio(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip()
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=200)
+    new_password: str = Field(min_length=8, max_length=200)
+
+
+class DeleteAccountIn(BaseModel):
+    password: str = Field(min_length=1, max_length=200)
 
 
 class DesignIn(BaseModel):
     title: str = Field(default="", max_length=80)
     recipe: FlowerRecipe
+    visibility: Visibility = "private"
 
 
 class DesignOut(BaseModel):
     id: int
     title: str
     recipe: dict[str, Any]
+    visibility: str = "private"
     created_at: datetime
     updated_at: datetime
 
@@ -152,6 +197,7 @@ class JournalIn(BaseModel):
     edit_state: dict[str, Any] | None = None
     project_id: int | None = None
     album_ids: list[int] = Field(default_factory=list, max_length=50)
+    visibility: Visibility = "private"
 
     @field_validator("edit_state")
     @classmethod
@@ -170,6 +216,7 @@ class JournalPatch(BaseModel):
     keep_original: bool | None = None
     edit_state: dict[str, Any] | None = None
     album_ids: list[int] | None = Field(default=None, max_length=50)
+    visibility: Visibility | None = None
 
     @field_validator("edit_state")
     @classmethod
@@ -179,10 +226,26 @@ class JournalPatch(BaseModel):
 
 class AlbumIn(BaseModel):
     name: str = Field(min_length=1, max_length=60)
+    visibility: Visibility = "private"
 
     @field_validator("name")
     @classmethod
     def _name(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("please name the album")
+        return value
+
+
+class AlbumPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=60)
+    visibility: Visibility | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         value = " ".join(value.split())
         if not value:
             raise ValueError("please name the album")

@@ -13,6 +13,7 @@ import { HomePage } from "./pages/Home";
 import { JournalPage } from "./pages/Journal";
 import { LivePage } from "./pages/Live";
 import { LiveRoomPage } from "./pages/LiveRoom";
+import { ProfilePage } from "./pages/Profile";
 import { ProjectPage } from "./pages/Project";
 import { StudioPage } from "./pages/Studio";
 import { TogetherPage } from "./pages/Together";
@@ -44,6 +45,8 @@ const ROUTES: Array<{ path: string; render: (params: Record<string, string>) => 
   { path: "/signin", render: () => <AuthPage mode="signin" /> },
   { path: "/signup", render: () => <AuthPage mode="signup" /> },
   { path: "/account", render: () => <AccountPage /> },
+  { path: "/profile", render: () => <ProfilePage /> },
+  { path: "/profile/:bloomId", render: (p) => <ProfilePage bloomId={p.bloomId} /> },
   { path: "/themes", render: () => <ThemesPage /> },
 ];
 

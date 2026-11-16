@@ -113,11 +113,23 @@ export function errorMessage(error: unknown): string {
 // Shared server types
 // ---------------------------------------------------------------------------
 
+export type Visibility = "private" | "friends" | "public";
+
+export interface PrivacySettings {
+  profile_visibility: Visibility;
+  searchable: boolean;
+  show_online_status: boolean;
+  allow_friend_requests: boolean;
+}
+
 export interface User {
   id: number;
   bloom_id: string;
   username: string;
   display_name: string;
+  bio: string;
+  avatar_url: string | null;
+  privacy_settings: PrivacySettings;
   created_at: string;
 }
 

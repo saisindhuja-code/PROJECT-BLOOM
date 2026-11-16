@@ -1,15 +1,16 @@
-/** Bloom IDs and friends: add by ID, accept requests, remove friends. */
+/** Bloom IDs, user search, profiles and friends. */
 import { useCallback, useEffect, useState } from "react";
 import { IconCopy, IconLive, IconTogether, IconTrash } from "../components/Icons";
 import { Avatar, Empty, Loading, SignInNeeded } from "../components/ui";
 import { api, errorMessage } from "../lib/api";
-import { useRouter } from "../lib/router";
+import { Link, useRouter } from "../lib/router";
 import { useSession } from "../lib/session";
 
 interface FriendItem {
   request_id: number;
   bloom_id: string;
   display_name: string;
+  avatar_url?: string | null;
   since: string;
 }
 
@@ -19,10 +20,12 @@ interface FriendsData {
   outgoing: FriendItem[];
 }
 
-interface Lookup {
+interface SearchResult {
   bloom_id: string;
   display_name: string;
+  avatar_url: string | null;
   relation: "none" | "self" | "friend" | "request-sent" | "request-received";
+  allow_friend_requests: boolean;
 }
 
 export function useFriends() {
@@ -49,8 +52,8 @@ export function FriendsPage() {
   const { user, toast } = useSession();
   const { navigate } = useRouter();
   const { data, error, reload } = useFriends();
-  const [code, setCode] = useState("");
-  const [found, setFound] = useState<Lookup | null>(null);
+  const [queryText, setQueryText] = useState("");
+  const [results, setResults] = useState<SearchResult[] | null>(null);
   const [lookupError, setLookupError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -75,12 +78,15 @@ export function FriendsPage() {
     }
   };
 
-  const lookup = async () => {
-    setFound(null);
+  const search = async () => {
+    setResults(null);
     setLookupError("");
-    if (!code.trim()) return;
+    const q = queryText.trim();
+    if (!q) return;
     try {
-      setFound(await api<Lookup>(`/api/users/lookup?bloom_id=${encodeURIComponent(code.trim())}`));
+      const found = await api<SearchResult[]>(`/api/profiles/search?q=${encodeURIComponent(q)}`);
+      setResults(found);
+      if (found.length === 0) setLookupError("No matching user found.");
     } catch (e) {
       setLookupError(errorMessage(e));
     }
@@ -101,6 +107,9 @@ export function FriendsPage() {
             The people you <span className="flourish">grow with</span>
           </h1>
         </div>
+        <Link to={`/profile/${user.bloom_id}`} className="btn small">
+          View my profile
+        </Link>
       </div>
 
       <div className="columns">
@@ -108,7 +117,7 @@ export function FriendsPage() {
           <div className="id-card">
             <span className="eyebrow">Your Bloom ID</span>
             <span className="bloom-id">{user.bloom_id}</span>
-            <p className="muted small">Give this to a friend. They type it below on their side to send you a request.</p>
+            <p className="muted small">Give this to a friend. They can search by Bloom ID or name to view your profile and send a request.</p>
             <button
               type="button"
               className="btn small"
@@ -123,56 +132,64 @@ export function FriendsPage() {
             className="panel stack"
             onSubmit={(e) => {
               e.preventDefault();
-              void lookup();
+              void search();
             }}
           >
-            <h3>Add a friend</h3>
+            <h3>Find someone</h3>
             <label className="field">
-              <span>Their Bloom ID</span>
+              <span>Bloom ID or name</span>
               <input
                 type="text"
-                value={code}
-                placeholder="BLM-XXXX-XXXX"
-                maxLength={20}
-                autoCapitalize="characters"
+                value={queryText}
+                placeholder="BLM-XXXX-XXXX or display name"
+                maxLength={48}
                 onChange={(e) => {
-                  setCode(e.target.value);
-                  setFound(null);
+                  setQueryText(e.target.value);
+                  setResults(null);
                   setLookupError("");
                 }}
-                style={{ fontFamily: "var(--mono)", letterSpacing: "0.08em" }}
               />
             </label>
-            <button type="submit" className="btn small" style={{ justifySelf: "start" }} disabled={!code.trim()}>
-              Find
+            <button type="submit" className="btn small" style={{ justifySelf: "start" }} disabled={!queryText.trim()}>
+              Search
             </button>
             {lookupError && <p className="form-error">{lookupError}</p>}
-            {found && (
-              <div className="person">
-                <Avatar name={found.display_name} />
-                <div className="who">
-                  <strong>{found.display_name}</strong>
-                  <span className="bloom-id">{found.bloom_id}</span>
-                </div>
-                {found.relation === "none" && (
-                  <button
-                    type="button"
-                    className="btn small primary"
-                    disabled={busy}
-                    onClick={() =>
-                      void act(async () => {
-                        const result = await api<{ status: string }>("/api/friends/requests", { body: { bloom_id: found.bloom_id } });
-                        setFound({ ...found, relation: result.status === "accepted" ? "friend" : "request-sent" });
-                      }, "Request sent.")
-                    }
-                  >
-                    Send request
-                  </button>
-                )}
-                {found.relation === "self" && <span className="muted small">That's you</span>}
-                {found.relation === "friend" && <span className="muted small">Already friends</span>}
-                {found.relation === "request-sent" && <span className="muted small">Request sent</span>}
-                {found.relation === "request-received" && <span className="muted small">They asked you, see below</span>}
+            {results && results.length > 0 && (
+              <div className="stack tight">
+                {results.map((found) => (
+                  <div key={found.bloom_id} className="person">
+                    <Avatar name={found.display_name} src={found.avatar_url} />
+                    <div className="who">
+                      <Link to={`/profile/${found.bloom_id}`} style={{ textDecoration: "none", color: "inherit" }}>
+                        <strong>{found.display_name}</strong>
+                      </Link>
+                      <span className="bloom-id">{found.bloom_id}</span>
+                    </div>
+                    <Link to={`/profile/${found.bloom_id}`} className="btn small quiet">
+                      Profile
+                    </Link>
+                    {found.relation === "none" && found.allow_friend_requests && (
+                      <button
+                        type="button"
+                        className="btn small primary"
+                        disabled={busy}
+                        onClick={() =>
+                          void act(async () => {
+                            const result = await api<{ status: string }>("/api/friends/requests", { body: { bloom_id: found.bloom_id } });
+                            setResults((list) =>
+                              list ? list.map((r) => (r.bloom_id === found.bloom_id ? { ...r, relation: result.status === "accepted" ? "friend" : "request-sent" } : r)) : list,
+                            );
+                          }, "Request sent.")
+                        }
+                      >
+                        Add
+                      </button>
+                    )}
+                    {found.relation === "friend" && <span className="muted small">Friends</span>}
+                    {found.relation === "request-sent" && <span className="muted small">Sent</span>}
+                    {found.relation === "request-received" && <span className="muted small">Asked you</span>}
+                  </div>
+                ))}
               </div>
             )}
           </form>
@@ -189,9 +206,11 @@ export function FriendsPage() {
                   <h3>Waiting for you</h3>
                   {data.incoming.map((f) => (
                     <div key={f.request_id} className="person">
-                      <Avatar name={f.display_name} />
+                      <Avatar name={f.display_name} src={f.avatar_url} />
                       <div className="who">
-                        <strong>{f.display_name}</strong>
+                        <Link to={`/profile/${f.bloom_id}`} style={{ textDecoration: "none", color: "inherit" }}>
+                          <strong>{f.display_name}</strong>
+                        </Link>
                         <span className="bloom-id">{f.bloom_id}</span>
                       </div>
                       <button type="button" className="btn small primary" disabled={busy} onClick={() => void act(() => api(`/api/friends/requests/${f.request_id}/accept`, { method: "POST" }), `You and ${f.display_name} are friends now.`)}>
@@ -207,13 +226,15 @@ export function FriendsPage() {
               <section className="panel">
                 <h3>Friends</h3>
                 {data.friends.length === 0 ? (
-                  <Empty title="No friends here yet">Share your Bloom ID, or add someone's.</Empty>
+                  <Empty title="No friends here yet">Share your Bloom ID, or search for someone.</Empty>
                 ) : (
                   data.friends.map((f) => (
                     <div key={f.bloom_id} className="person">
-                      <Avatar name={f.display_name} />
+                      <Avatar name={f.display_name} src={f.avatar_url} />
                       <div className="who">
-                        <strong>{f.display_name}</strong>
+                        <Link to={`/profile/${f.bloom_id}`} style={{ textDecoration: "none", color: "inherit" }}>
+                          <strong>{f.display_name}</strong>
+                        </Link>
                         <span className="bloom-id">{f.bloom_id}</span>
                       </div>
                       <button type="button" className="btn icon small quiet" title="Make something together" aria-label={`Make something together with ${f.display_name}`} onClick={() => navigate(`/together?with=${encodeURIComponent(f.bloom_id)}`)}>
@@ -245,9 +266,11 @@ export function FriendsPage() {
                   <h3>Requests you sent</h3>
                   {data.outgoing.map((f) => (
                     <div key={f.request_id} className="person">
-                      <Avatar name={f.display_name} />
+                      <Avatar name={f.display_name} src={f.avatar_url} />
                       <div className="who">
-                        <strong>{f.display_name}</strong>
+                        <Link to={`/profile/${f.bloom_id}`} style={{ textDecoration: "none", color: "inherit" }}>
+                          <strong>{f.display_name}</strong>
+                        </Link>
                         <span className="bloom-id">{f.bloom_id}</span>
                       </div>
                       <button type="button" className="btn small quiet" disabled={busy} onClick={() => void act(() => api(`/api/friends/requests/${f.request_id}`, { method: "DELETE" }), "Request cancelled.")}>

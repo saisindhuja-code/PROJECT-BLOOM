@@ -7,7 +7,7 @@ import { Empty, Loading, formatDate } from "../components/ui";
 import { errorMessage } from "../lib/api";
 import { Link, useRouter } from "../lib/router";
 import { useSession } from "../lib/session";
-import type { Album, EntryType, JournalEntry } from "../lib/store";
+import type { Album, EntryType, JournalEntry, Visibility } from "../lib/store";
 
 const TYPES: Array<{ id: EntryType | ""; label: string }> = [
   { id: "", label: "Everything" },
@@ -132,6 +132,26 @@ export function JournalPage() {
         </div>
         {currentAlbum && (
           <div className="btn-row">
+            {store.kind === "server" && (
+              <select
+                aria-label="Collection visibility"
+                value={currentAlbum.visibility}
+                style={{ width: "auto", minHeight: 34, padding: "4px 32px 4px 12px", fontSize: 13 }}
+                onChange={async (e) => {
+                  try {
+                    await store.updateAlbum(currentAlbum.id, { visibility: e.target.value as Visibility });
+                    await loadAlbums();
+                    toast("Collection visibility updated.");
+                  } catch (err) {
+                    toast(errorMessage(err), "error");
+                  }
+                }}
+              >
+                <option value="private">Private</option>
+                <option value="friends">Friends</option>
+                <option value="public">Public</option>
+              </select>
+            )}
             <button type="button" className="btn small quiet" onClick={() => void renameAlbum(currentAlbum)}>
               <IconEdit /> Rename
             </button>

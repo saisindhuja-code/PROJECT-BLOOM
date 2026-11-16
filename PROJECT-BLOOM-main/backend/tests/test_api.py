@@ -405,5 +405,98 @@ class BloomApiTest(unittest.TestCase):
                     recv(ws_bad)
 
 
+    def test_06_phase2_profiles_privacy_and_auth(self) -> None:
+        a, me_a = self.client("alice", "Alice")
+        b, me_b = self.client("bob", "Bob")
+        c, me_c = self.client("carol", "Carol")
+
+        # 1. Avatar upload, replacement cleanup, bio & privacy settings
+        av1 = self.upload(a, kind="avatar", color=(180, 90, 140))
+        av2 = self.upload(a, kind="avatar", color=(90, 180, 120))
+        upd = a.patch(
+            "/api/auth/me",
+            json={
+                "bio": "Growing word flowers in Bengaluru",
+                "avatar_media_id": av1["id"],
+                "privacy_settings": {
+                    "profile_visibility": "friends",
+                    "searchable": True,
+                    "show_online_status": True,
+                    "allow_friend_requests": True,
+                },
+            },
+        )
+        self.assertEqual(upd.status_code, 200, upd.text)
+        self.assertEqual(upd.json()["avatar_url"], av1["url"])
+        self.assertEqual(upd.json()["bio"], "Growing word flowers in Bengaluru")
+
+        # Replacing avatar releases the old avatar media
+        upd2 = a.patch("/api/auth/me", json={"avatar_media_id": av2["id"]})
+        self.assertEqual(upd2.status_code, 200)
+        self.assertEqual(a.get(av1["url"]).status_code, 404)
+
+        # 2. Item visibility & profile privacy enforcement
+        a.post("/api/designs", json={"title": "SecretRose", "recipe": recipe("secret"), "visibility": "private"})
+        a.post("/api/designs", json={"title": "FriendsRose", "recipe": recipe("friends"), "visibility": "friends"})
+        a.post("/api/designs", json={"title": "PublicRose", "recipe": recipe("public"), "visibility": "public"})
+
+        p_priv = self.upload(a, kind="photo", color=(10, 10, 10))
+        p_pub = self.upload(a, kind="photo", color=(240, 200, 210))
+        o_pub = self.upload(a, kind="original", color=(240, 200, 210))
+        alb_pub = a.post("/api/albums", json={"name": "Public Garden", "visibility": "public"}).json()
+        a.post("/api/journal", json={"entry_type": "photo", "title": "Private Shot", "photo_media_id": p_priv["id"], "visibility": "private", "album_ids": [alb_pub["id"]]})
+        a.post("/api/journal", json={"entry_type": "photo", "title": "Public Shot", "photo_media_id": p_pub["id"], "original_media_id": o_pub["id"], "visibility": "public", "album_ids": [alb_pub["id"]]})
+
+        # While profile_visibility is "friends", non-friend b cannot see bio, avatar, flowers, or entries
+        prof_b_before = b.get(f"/api/profiles/{me_a['bloom_id']}").json()
+        self.assertFalse(prof_b_before["can_view_profile"])
+        self.assertEqual(prof_b_before["bio"], "")
+        self.assertIsNone(prof_b_before["avatar_url"])
+        self.assertEqual(prof_b_before["flowers"], [])
+        self.assertNotIn("username", prof_b_before)
+        self.assertEqual(b.get(av2["url"]).status_code, 404)
+        self.assertEqual(b.get(p_priv["url"]).status_code, 404)
+        self.assertEqual(b.get(o_pub["url"]).status_code, 404)  # original always owner-only
+
+        # Make a and b friends -> b sees friends + public items, still not private items
+        req = b.post("/api/friends/requests", json={"bloom_id": me_a["bloom_id"]}).json()
+        incoming = a.get("/api/friends").json()["incoming"]
+        a.post(f"/api/friends/requests/{incoming[0]['request_id']}/accept")
+        prof_b_friend = b.get(f"/api/profiles/{me_a['bloom_id']}").json()
+        self.assertTrue(prof_b_friend["can_view_profile"])
+        self.assertEqual({f["title"] for f in prof_b_friend["flowers"]}, {"FriendsRose", "PublicRose"})
+        self.assertEqual([e["title"] for e in prof_b_friend["entries"]], ["Public Shot"])
+        self.assertEqual(prof_b_friend["albums"][0]["entry_count"], 1)  # private entry excluded from public album
+        self.assertEqual(b.get(av2["url"]).status_code, 200)
+        self.assertEqual(b.get(p_pub["url"]).status_code, 200)
+        self.assertEqual(b.get(p_priv["url"]).status_code, 404)
+
+        # Public profile: stranger c sees public items only
+        a.patch("/api/auth/me", json={"privacy_settings": {"profile_visibility": "public", "searchable": False, "show_online_status": True, "allow_friend_requests": False}})
+        prof_c = c.get(f"/api/profiles/{me_a['bloom_id']}").json()
+        self.assertTrue(prof_c["can_view_profile"])
+        self.assertEqual([f["title"] for f in prof_c["flowers"]], ["PublicRose"])
+        # Non-searchable hides from name search, and allow_friend_requests=False blocks new requests
+        self.assertEqual(c.get("/api/profiles/search", params={"q": "Alice"}).json(), [])
+        self.assertEqual(c.post("/api/friends/requests", json={"bloom_id": me_a["bloom_id"]}).status_code, 403)
+        # Search by name works for searchable accounts without leaking username
+        found_b = c.get("/api/profiles/search", params={"q": "Bob"}).json()
+        self.assertEqual(len(found_b), 1)
+        self.assertNotIn("username", found_b[0])
+
+        # 3. Change password & account deletion with media cleanup
+        self.assertEqual(c.post("/api/auth/change-password", json={"current_password": "wrong", "new_password": "new-petals-123"}).status_code, 401)
+        self.assertEqual(c.post("/api/auth/change-password", json={"current_password": "petals-123", "new_password": "new-petals-123"}).status_code, 204)
+        c2 = TestClient(app, headers=HEADERS)
+        self.assertEqual(c2.post("/api/auth/login", json={"username": "carol", "password": "petals-123"}).status_code, 401)
+        self.assertEqual(c2.post("/api/auth/login", json={"username": "carol", "password": "new-petals-123"}).status_code, 200)
+
+        # Account deletion checks password and cleans up media
+        self.assertEqual(a.post("/api/auth/delete-account", json={"password": "wrong"}).status_code, 401)
+        self.assertEqual(a.post("/api/auth/delete-account", json={"password": "petals-123"}).status_code, 204)
+        self.assertEqual(a.get("/api/auth/me").status_code, 401)
+        self.assertEqual(b.get(p_pub["url"]).status_code, 404)
+
+
 if __name__ == "__main__":
     unittest.main()
