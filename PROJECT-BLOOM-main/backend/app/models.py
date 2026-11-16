@@ -8,9 +8,10 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     DateTime,
-    LargeBinary,
     ForeignKey,
+    Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -47,23 +48,24 @@ class FlowerDesign(Base):
 
 
 class Media(Base):
-    """An uploaded image file. Private to its owner unless shared through a project or live room."""
+    """An uploaded image or voice note. Private to its owner unless shared."""
 
     __tablename__ = "media"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    kind: Mapped[str] = mapped_column(String(20))  # original | photo | flower | contribution | capture
+    kind: Mapped[str] = mapped_column(String(20))  # original | photo | flower | contribution | capture | avatar | sticker | chat_image | voice
     storage_key: Mapped[str] = mapped_column(String(255), unique=True)
     content_type: Mapped[str] = mapped_column(String(40))
     width: Mapped[int] = mapped_column(Integer)
     height: Mapped[int] = mapped_column(Integer)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     size_bytes: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class MediaBlob(Base):
-    """Image bytes, when BLOOM_STORAGE=database (hosts without a lasting disk)."""
+    """Media bytes, when BLOOM_STORAGE=database (hosts without a lasting disk)."""
 
     __tablename__ = "media_blobs"
 
@@ -83,6 +85,7 @@ class Album(Base):
 
 class JournalEntry(Base):
     __tablename__ = "journal_entries"
+    __table_args__ = (Index("ix_journal_entries_owner_taken", "owner_id", "taken_at"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -92,14 +95,10 @@ class JournalEntry(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     taken_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     recipe: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    # The finished, themed image (or the rendered flower).
     photo_media_id: Mapped[int | None] = mapped_column(ForeignKey("media.id", ondelete="SET NULL"), nullable=True)
-    # The untouched original photo, only when the user chooses to keep it.
     original_media_id: Mapped[int | None] = mapped_column(ForeignKey("media.id", ondelete="SET NULL"), nullable=True)
-    # Everything needed to reopen the edit: theme, filter settings, overlay positions, layout.
     edit_state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
-    # Display names of collaborators at save time (kept even if the project is later closed).
     participants: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
@@ -209,8 +208,7 @@ class LiveCapture(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     room_id: Mapped[str] = mapped_column(ForeignKey("live_rooms.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    media_id: Mapped[int] = mapped_column(ForeignKey("media.id", ondelete="CASCADE"))
+    media_id: Mapped[int] = mapped_column(ForeignKey("media.id", ondelete="CASCADE"), index=True)
     round_id: Mapped[str] = mapped_column(String(24))
-    # Where the sender placed the flower on their photo (numbers only).
     placement: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

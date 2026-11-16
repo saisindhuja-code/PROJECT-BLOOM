@@ -10,6 +10,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+USERNAME = re.compile(r"^[a-z0-9_.]{3,32}$")
 MAX_STATE_JSON_BYTES = 64 * 1024
 
 
@@ -19,12 +20,6 @@ def _validate_state_size(value: dict[str, Any] | None) -> dict[str, Any] | None:
     if len(json.dumps(value, separators=(",", ":"))) > MAX_STATE_JSON_BYTES:
         raise ValueError("saved settings are too large")
     return value
-USERNAME = re.compile(r"^[a-z0-9_.]{3,32}$")
-
-
-# ---------------------------------------------------------------------------
-# Flower recipe (mirrors frontend/src/flower/recipe.ts)
-# ---------------------------------------------------------------------------
 
 
 class FlowerColors(BaseModel):
@@ -73,11 +68,6 @@ class FlowerRecipe(BaseModel):
         return cleaned
 
 
-# ---------------------------------------------------------------------------
-# Users
-# ---------------------------------------------------------------------------
-
-
 class RegisterIn(BaseModel):
     username: str
     display_name: str = Field(min_length=1, max_length=48)
@@ -124,11 +114,6 @@ class ProfileUpdate(BaseModel):
     display_name: str = Field(min_length=1, max_length=48)
 
 
-# ---------------------------------------------------------------------------
-# Designs
-# ---------------------------------------------------------------------------
-
-
 class DesignIn(BaseModel):
     title: str = Field(default="", max_length=80)
     recipe: FlowerRecipe
@@ -142,23 +127,15 @@ class DesignOut(BaseModel):
     updated_at: datetime
 
 
-# ---------------------------------------------------------------------------
-# Media
-# ---------------------------------------------------------------------------
-
-
 class MediaOut(BaseModel):
     id: int
     kind: str
     url: str
     width: int
     height: int
+    duration_ms: int | None = None
     content_type: str
 
-
-# ---------------------------------------------------------------------------
-# Journal
-# ---------------------------------------------------------------------------
 
 EntryType = Literal["flower", "photo", "composition"]
 
@@ -212,11 +189,6 @@ class AlbumIn(BaseModel):
         return value
 
 
-# ---------------------------------------------------------------------------
-# Friends, projects, live
-# ---------------------------------------------------------------------------
-
-
 class FriendRequestIn(BaseModel):
     bloom_id: str = Field(max_length=20)
 
@@ -248,7 +220,6 @@ class ContributionItem(BaseModel):
     model_config = ConfigDict(extra="ignore")
     media_id: int | None = None
     recipe: FlowerRecipe | None = None
-    # Photo framing inside the layout slot and flower overlay placement.
     photo: dict[str, float] = Field(default_factory=dict)
     flower: dict[str, float] = Field(default_factory=dict)
 

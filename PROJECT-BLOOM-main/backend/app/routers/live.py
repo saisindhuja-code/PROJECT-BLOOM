@@ -1,14 +1,6 @@
 """
 Live Bloom: private real-time rooms for two friends.
-
-- REST endpoints create/close rooms and hand out ICE (STUN/TURN) settings.
-- A WebSocket per room carries WebRTC signalling (offers, answers, ICE
-  candidates) and the shared session state (flower, theme, layout, capture
-  rounds). Audio/video itself flows directly between the browsers (or via
-  TURN), never through this server.
-
-The hub keeps connections in memory, so run a single backend process (the
-default). Scaling out would need a shared message bus such as Redis.
+Uses shared origin checks from app.realtime.
 """
 
 from __future__ import annotations
@@ -34,6 +26,7 @@ from ..access import are_friends, not_found, release_media
 from ..config import settings
 from ..db import SessionLocal, get_db
 from ..models import LiveCapture, LiveRoom, Media, User
+from ..realtime import MAX_WS_MESSAGE_BYTES, ws_origin_allowed
 from ..schemas import LiveRoomIn
 from ..security import current_user, user_from_token
 from ..storage import storage
@@ -42,7 +35,7 @@ from .friends import find_by_bloom_id
 router = APIRouter(prefix="/api/live", tags=["live"])
 log = logging.getLogger("bloom.live")
 
-MAX_MESSAGE_BYTES = 64 * 1024
+MAX_MESSAGE_BYTES = MAX_WS_MESSAGE_BYTES
 
 
 def room_out(room: LiveRoom, viewer: User) -> dict[str, Any]:
@@ -71,7 +64,6 @@ def ice_config(user: User = Depends(current_user)) -> dict[str, Any]:
         servers.append({"urls": settings.stun_urls})
     if settings.turn_urls:
         if settings.turn_shared_secret:
-            # coturn "use-auth-secret": short-lived credentials, nothing long-lived reaches the browser.
             username = f"{int(time.time()) + 6 * 3600}:{user.bloom_id}"
             digest = hmac.new(settings.turn_shared_secret.encode(), username.encode(), hashlib.sha1).digest()
             servers.append({"urls": settings.turn_urls, "username": username, "credential": base64.b64encode(digest).decode()})
@@ -140,11 +132,6 @@ async def close_room(room_id: str, user: User = Depends(current_user), db: Sessi
     return room_out(room, user)
 
 
-# ---------------------------------------------------------------------------
-# WebSocket hub
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class Peer:
     user_id: int
@@ -171,7 +158,7 @@ class LiveHub:
     async def send(self, peer: Peer, message: dict[str, Any]) -> None:
         try:
             await peer.socket.send_text(json.dumps(message, default=str))
-        except Exception:  # the socket is closing; its own handler cleans up
+        except Exception:
             pass
 
     async def broadcast(self, room_id: str, message: dict[str, Any], exclude: int | None = None) -> None:
@@ -225,7 +212,6 @@ ALLOWED_STATE_KEYS = {"recipe", "theme", "layout", "mode"}
 
 
 def _clean_placement(raw: Any) -> dict[str, float] | None:
-    """Only small numeric flower-placement settings are relayed."""
     if not isinstance(raw, dict):
         return None
     clean: dict[str, float] = {}
@@ -233,16 +219,6 @@ def _clean_placement(raw: Any) -> dict[str, float] | None:
         if isinstance(value, (int, float)) and not isinstance(value, bool) and abs(value) < 1e6:
             clean[str(key)[:20]] = float(value)
     return clean
-
-
-def _origin_allowed(websocket: WebSocket) -> bool:
-    origin = websocket.headers.get("origin")
-    if origin is None:
-        return True  # non-browser clients send no Origin; they still need the session cookie
-    host = websocket.headers.get("host", "")
-    if origin.split("://", 1)[-1] == host:
-        return True
-    return origin in settings.allowed_origins
 
 
 def _load_member(room_id: str, token: str | None) -> tuple[User, LiveRoom] | None:
@@ -289,7 +265,7 @@ def _room_captures(room_id: str) -> list[dict[str, Any]]:
 
 @router.websocket("/ws/{room_id}")
 async def live_socket(websocket: WebSocket, room_id: str) -> None:
-    if not _origin_allowed(websocket):
+    if not ws_origin_allowed(websocket):
         await websocket.close(code=4003, reason="Origin not allowed")
         return
     member = await run_in_threadpool(_load_member, room_id, websocket.cookies.get(settings.cookie_name))
@@ -306,7 +282,7 @@ async def live_socket(websocket: WebSocket, room_id: str) -> None:
         {
             "type": "welcome",
             "you": {"bloom_id": user.bloom_id, "display_name": user.display_name},
-            "polite": user.id == room_row.guest_id,  # the guest yields during offer collisions
+            "polite": user.id == room_row.guest_id,
             "peers": [{"bloom_id": p.bloom_id, "display_name": p.display_name} for p in others],
             "state": room.shared,
             "captures": await run_in_threadpool(_room_captures, room_id),
@@ -349,7 +325,6 @@ async def live_socket(websocket: WebSocket, room_id: str) -> None:
             elif kind == "state":
                 patch = message.get("patch")
                 if isinstance(patch, dict):
-                    # Shared keys anyone may change, plus your own flower placement.
                     own_key = f"placement:{user.bloom_id}"
                     clean = {k: v for k, v in patch.items() if k in ALLOWED_STATE_KEYS or k == own_key}
                     if clean:
@@ -366,8 +341,13 @@ async def live_socket(websocket: WebSocket, room_id: str) -> None:
                 if round_id:
                     await hub.broadcast(
                         room_id,
-                        {"type": "capture", "round_id": round_id, "seconds": seconds, "by": user.bloom_id,
-                         "together": bool(message.get("together", True))},
+                        {
+                            "type": "capture",
+                            "round_id": round_id,
+                            "seconds": seconds,
+                            "by": user.bloom_id,
+                            "together": bool(message.get("together", True)),
+                        },
                     )
             elif kind == "captured":
                 round_id = str(message.get("round_id", ""))[:24]
@@ -389,7 +369,7 @@ async def live_socket(websocket: WebSocket, room_id: str) -> None:
                         )
     except WebSocketDisconnect:
         pass
-    except Exception:  # pragma: no cover - log unexpected socket errors
+    except Exception:  # pragma: no cover
         log.exception("live socket error")
     finally:
         await hub.leave(room_id, peer)

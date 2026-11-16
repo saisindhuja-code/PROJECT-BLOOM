@@ -349,5 +349,61 @@ class BloomApiTest(unittest.TestCase):
         self.assertEqual(a.get("/api/friends").json()["friends"], [])
 
 
+    def test_05_phase1_foundation_audio_security_and_ws(self) -> None:
+        a, me_a = self.client("voice_user", "Voice User")
+        b, _ = self.client("voice_stranger", "Stranger")
+
+        ogg_opus = b"OggS\x00\x02" + b"\x00" * 22 + b"OpusHead" + b"\x00" * 32
+        webm_opus = b"\x1a\x45\xdf\xa3" + b"\x00" * 16 + b"webm" + b"\x00" * 20 + b"A_OPUS" + b"\x00" * 32
+        m4a_audio = b"\x00\x00\x00\x18ftypM4A \x00\x00\x00\x00M4A isom" + b"\x00" * 16 + b"mp4a" + b"\x00" * 16
+        wav_audio = b"RIFF\x24\x00\x00\x00WAVEfmt " + b"\x00" * 32
+
+        for fname, blob, expected_ct in [
+            ("v.ogg", ogg_opus, "audio/ogg"),
+            ("v.webm", webm_opus, "audio/webm"),
+            ("v.m4a", m4a_audio, "audio/mp4"),
+            ("v.wav", wav_audio, "audio/wav"),
+        ]:
+            up = a.post("/api/media", files={"file": (fname, blob, "application/octet-stream")}, data={"kind": "voice", "duration_ms": "2450"})
+            self.assertEqual(up.status_code, 201, up.text)
+            info = up.json()
+            self.assertEqual(info["content_type"], expected_ct)
+            self.assertEqual(info["duration_ms"], 2450)
+            r_full = a.get(info["url"])
+            self.assertEqual(r_full.status_code, 200)
+            self.assertEqual(r_full.headers.get("x-content-type-options"), "nosniff")
+            r_range = a.get(info["url"], headers={"Range": "bytes=0-9"})
+            self.assertIn(r_range.status_code, (200, 206))
+            if r_range.status_code == 206:
+                self.assertEqual(len(r_range.content), 10)
+            self.assertEqual(b.get(info["url"]).status_code, 404)
+
+        webm_video = b"\x1a\x45\xdf\xa3" + b"\x00" * 16 + b"webm" + b"\x00" * 10 + b"V_VP9" + b"A_OPUS" + b"\x00" * 16
+        self.assertEqual(a.post("/api/media", files={"file": ("bad.webm", webm_video, "audio/webm")}, data={"kind": "voice"}).status_code, 422)
+        self.assertEqual(a.post("/api/media", files={"file": ("x.ogg", b"<script>alert(1)</script>" * 3, "audio/ogg")}, data={"kind": "voice"}).status_code, 422)
+        self.assertEqual(a.post("/api/media", files={"file": ("a.ogg", ogg_opus, "audio/ogg")}, data={"kind": "photo"}).status_code, 422)
+
+        huge_state = a.post("/api/journal", json={"entry_type": "flower", "recipe": recipe("big"), "edit_state": {"pad": "x" * 70_000}})
+        self.assertEqual(huge_state.status_code, 422)
+        huge_body = a.post("/api/journal", content=b'{"title":"' + b"a" * (2 * 1024 * 1024 + 50) + b'"}', headers={"Content-Type": "application/json", **HEADERS})
+        self.assertEqual(huge_body.status_code, 413)
+
+        with live_server() as base:
+            ws_url = base.replace("http", "ws") + "/api/ws"
+            with ws_connect(ws_url, a) as ws:
+                ready = recv(ws)
+                self.assertEqual(ready["type"], "ready")
+                self.assertEqual(ready["bloom_id"], me_a["bloom_id"])
+                send(ws, {"type": "ping"})
+                self.assertEqual(recv(ws)["type"], "pong")
+            anon = TestClient(app, headers=HEADERS)
+            with self.assertRaises(Exception):
+                with ws_connect(ws_url, anon) as ws_anon:
+                    recv(ws_anon)
+            with self.assertRaises(Exception):
+                with ws_connect(ws_url, a, origin="https://evil.example") as ws_bad:
+                    recv(ws_bad)
+
+
 if __name__ == "__main__":
     unittest.main()

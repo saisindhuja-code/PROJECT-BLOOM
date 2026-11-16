@@ -5,8 +5,6 @@ Modes
 - twin:   one shared flower design, each person adds their own photo
 - two:    each person adds their own flower and photo
 - moment: each person adds up to four photos and/or flowers
-
-Everyone works at their own pace; nothing requires both people online.
 """
 
 from __future__ import annotations
@@ -53,7 +51,7 @@ def project_out(project: Project, viewer: User) -> dict[str, Any]:
         "updated_at": project.updated_at,
     }
     if mine is None or mine.status != "active":
-        return base  # invitations only show who is asking and what for
+        return base
     names = {m.user_id: m.user for m in project.members}
     return {
         **base,
@@ -203,7 +201,7 @@ def _remove_member(db: Session, project: Project, member: ProjectMember) -> set[
     released: set[int] = set()
     if contribution is not None:
         released = {item["media_id"] for item in contribution.items or [] if item.get("media_id")}
-        db.delete(contribution)  # their photos stop being visible to the project
+        db.delete(contribution)
     project.members.remove(member)
     return released
 
@@ -276,7 +274,7 @@ def save_contribution(
         raise HTTPException(422, "Too many pictures for this mode.")
     items: list[dict[str, Any]] = []
     for item in body.items:
-        require_owned_media(db, item.media_id, user)  # you can only share your own photos
+        require_owned_media(db, item.media_id, user)
         if item.media_id is None and item.recipe is None:
             continue
         items.append(

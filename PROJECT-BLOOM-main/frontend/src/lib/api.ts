@@ -132,5 +132,6 @@ export interface MediaInfo {
   url: string;
   width: number;
   height: number;
+  duration_ms?: number | null;
   content_type: string;
 }

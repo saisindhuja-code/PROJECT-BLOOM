@@ -18,10 +18,6 @@ from .config import settings
 from .db import get_db
 from .models import User
 
-# ---------------------------------------------------------------------------
-# Passwords: scrypt from Python's standard library (memory-hard, salted).
-# ---------------------------------------------------------------------------
-
 _SCRYPT_N, _SCRYPT_R, _SCRYPT_P = 2**14, 8, 1
 
 
@@ -46,18 +42,12 @@ def verify_password(password: str, stored: str) -> bool:
         return False
 
 
-# A real hash to compare against when the username does not exist, so a
-# failed login takes the same time either way.
 _DUMMY_HASH = hash_password(secrets.token_urlsafe(12))
 
 
 def burn_password_check(password: str) -> None:
     verify_password(password, _DUMMY_HASH)
 
-
-# ---------------------------------------------------------------------------
-# Session cookie (a signed JWT, httpOnly so page scripts cannot read it).
-# ---------------------------------------------------------------------------
 
 _ALGORITHM = "HS256"
 
@@ -106,10 +96,6 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     return user
 
 
-# ---------------------------------------------------------------------------
-# Simple login rate limit (per IP address, in memory).
-# ---------------------------------------------------------------------------
-
 _attempts: dict[str, deque[float]] = defaultdict(deque)
 _WINDOW_SECONDS = 300
 _MAX_ATTEMPTS = 10
@@ -134,11 +120,7 @@ def reset_login_rate() -> None:
     _attempts.clear()
 
 
-# ---------------------------------------------------------------------------
-# Bloom IDs: short, readable and unique, e.g. BLM-7Q4K-2XRD
-# ---------------------------------------------------------------------------
-
-_ID_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"  # no 0/O, 1/I
+_ID_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 
 
 def new_bloom_id() -> str:

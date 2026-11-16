@@ -18,6 +18,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
+from . import realtime
 from .config import BACKEND_DIR, settings
 from .routers import auth, designs, friends, inbox, journal, live, media, projects
 
@@ -43,14 +44,14 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Bloom", version="1.0.0", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")
+app = FastAPI(title="Bloom", version="2.0.0", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["Content-Type", "X-Bloom-Client"],
+    allow_headers=["Content-Type", "X-Bloom-Client", "Range"],
 )
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -63,6 +64,19 @@ async def protect_requests(request: Request, call_next):
     if request.url.path.startswith("/api/") and request.method in UNSAFE_METHODS:
         if request.headers.get("x-bloom-client") != "1":
             return JSONResponse({"detail": "Missing X-Bloom-Client header."}, status_code=403)
+        # Bound JSON/non-upload request size to prevent memory exhaustion.
+        content_type = (request.headers.get("content-type") or "").lower()
+        if not content_type.startswith("multipart/form-data"):
+            limit = settings.max_json_mb * 1024 * 1024
+            try:
+                content_length = int(request.headers.get("content-length") or 0)
+            except ValueError:
+                content_length = 0
+            if content_length > limit:
+                return JSONResponse({"detail": "Request payload is too large."}, status_code=413)
+            body = await request.body()
+            if len(body) > limit:
+                return JSONResponse({"detail": "Request payload is too large."}, status_code=413)
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "same-origin")
@@ -75,13 +89,9 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-for module in (auth, designs, media, journal, friends, projects, live, inbox):
+for module in (auth, designs, media, journal, friends, projects, live, inbox, realtime):
     app.include_router(module.router)
 
-
-# ---------------------------------------------------------------------------
-# Serve the built frontend (production / single-server mode)
-# ---------------------------------------------------------------------------
 
 dist: Path = settings.frontend_dist
 if (dist / "index.html").exists():

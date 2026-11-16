@@ -68,8 +68,6 @@ def require_owned_media(db: Session, media_id: int | None, user: User) -> Media 
 def can_view_media(db: Session, media: Media, user: User) -> bool:
     if media.owner_id == user.id:
         return True
-    # Shared through a project: the media is in someone's contribution and
-    # both people are active members of that project.
     shared_projects = db.scalars(
         select(Contribution.project_id)
         .join(
@@ -90,7 +88,6 @@ def can_view_media(db: Session, media: Media, user: User) -> bool:
             owner_still_member = active_membership(db, project_id, media.owner_id)
             if owner_still_member is not None:
                 return True
-    # Shared inside a live room that both people belong to.
     capture = db.scalar(
         select(LiveCapture)
         .join(LiveRoom, LiveRoom.id == LiveCapture.room_id)
@@ -104,7 +101,7 @@ def can_view_media(db: Session, media: Media, user: User) -> bool:
 
 def release_media(db: Session, media_id: int | None, doomed: list[str]) -> None:
     """
-    Removes an image once nothing refers to it any more. The stored file's key
+    Removes an upload once nothing refers to it any more. The stored file's key
     is added to `doomed`; delete those only after the database commit.
     """
     if media_id is None:

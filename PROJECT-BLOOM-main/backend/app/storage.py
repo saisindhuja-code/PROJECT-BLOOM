@@ -1,7 +1,10 @@
 """
-Where image files live. Local disk for development; the MediaStorage
-interface lets a private cloud bucket (S3, R2, GCS...) replace it later
-without touching the API code.
+Where image and voice note files live. Local disk for development;
+DatabaseStorage for ephemeral hosts; MediaStorage interface ready for cloud
+object storage.
+
+All uploads are validated by inspecting the actual file bytes rather than
+trusting client filenames or Content-Type headers.
 """
 
 from __future__ import annotations
@@ -16,14 +19,27 @@ from PIL import Image, UnidentifiedImageError
 from .config import settings
 
 ALLOWED_FORMATS = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
-EXTENSIONS = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+ALLOWED_AUDIO_TYPES = {"audio/webm", "audio/ogg", "audio/mp4", "audio/wav"}
+EXTENSIONS = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "audio/webm": "webm",
+    "audio/ogg": "ogg",
+    "audio/mp4": "m4a",
+    "audio/wav": "wav",
+}
 MAX_PIXELS = 40_000_000
 
 Image.MAX_IMAGE_PIXELS = MAX_PIXELS
 
 
-class InvalidImage(ValueError):
+class InvalidMedia(ValueError):
     pass
+
+
+# Backward-compatible alias
+InvalidImage = InvalidMedia
 
 
 class MediaStorage(Protocol):
@@ -50,7 +66,8 @@ class LocalStorage:
         return path
 
     def save(self, data: bytes, content_type: str) -> str:
-        key = f"{secrets.token_hex(2)}/{secrets.token_urlsafe(18)}.{EXTENSIONS[content_type]}"
+        ext = EXTENSIONS[content_type]
+        key = f"{secrets.token_hex(2)}/{secrets.token_urlsafe(18)}.{ext}"
         path = self._path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
@@ -70,28 +87,25 @@ class LocalStorage:
 
 
 class DatabaseStorage:
-    """
-    Keeps image bytes in the database (table media_blobs). Used on hosts
-    without a lasting disk, such as Render's free plan, where local files
-    vanish on every restart.
-    """
+    """Keeps media bytes in the database (table media_blobs)."""
 
     def _session(self):
-        from .db import SessionLocal  # imported here to avoid a circular import
+        from .db import SessionLocal
 
         return SessionLocal()
 
     def save(self, data: bytes, content_type: str) -> str:
         from .models import MediaBlob
 
-        key = f"db/{secrets.token_urlsafe(18)}.{EXTENSIONS[content_type]}"
+        ext = EXTENSIONS[content_type]
+        key = f"db/{secrets.token_urlsafe(18)}.{ext}"
         with self._session() as db:
             db.add(MediaBlob(key=key, data=data))
             db.commit()
         return key
 
     def path_for(self, key: str) -> Path | None:
-        return None  # served from memory, not from a file
+        return None
 
     def read(self, key: str) -> bytes:
         from .models import MediaBlob
@@ -118,16 +132,67 @@ storage: MediaStorage = DatabaseStorage() if settings.storage_backend == "databa
 def inspect_image(data: bytes) -> tuple[str, int, int]:
     """Checks that the bytes really are a JPEG/PNG/WebP image. Returns (content_type, width, height)."""
     if not data:
-        raise InvalidImage("The file is empty.")
+        raise InvalidMedia("The file is empty.")
     try:
         with Image.open(io.BytesIO(data)) as probe:
             fmt = probe.format or ""
             width, height = probe.size
             probe.verify()
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
-        raise InvalidImage("That file is not a supported image.") from exc
+        raise InvalidMedia("That file is not a supported image.") from exc
     if fmt not in ALLOWED_FORMATS:
-        raise InvalidImage("Please use a JPEG, PNG or WebP image.")
+        raise InvalidMedia("Please use a JPEG, PNG or WebP image.")
     if width * height > MAX_PIXELS:
-        raise InvalidImage("That image is too large.")
+        raise InvalidMedia("That image is too large.")
     return ALLOWED_FORMATS[fmt], width, height
+
+
+_WEBM_VIDEO_CODECS = (b"V_VP8", b"V_VP9", b"V_AV1", b"V_MPEG4", b"V_THEORA")
+_MP4_AUDIO_BRANDS = (b"M4A ", b"mp42", b"isom", b"iso2", b"mp41")
+_MP4_VIDEO_CODECS = (b"avc1", b"hvc1", b"hev1", b"vp09", b"av01")
+
+
+def inspect_audio(data: bytes) -> str:
+    """
+    Verifies container magic bytes and audio track headers for voice messages
+    (WebM/Opus, Ogg/Opus/Vorbis, MP4/M4A audio, or WAV). Rejects video tracks,
+    scripts, and unverified containers.
+    """
+    if len(data) < 28:
+        raise InvalidMedia("That voice recording is empty or incomplete.")
+    head = data[:16384]
+
+    # 1. WebM audio (Chrome/Edge/Android MediaRecorder)
+    if head.startswith(b"\x1a\x45\xdf\xa3"):
+        if b"webm" not in head[:128]:
+            raise InvalidMedia("Unsupported Matroska container.")
+        if any(v in head for v in _WEBM_VIDEO_CODECS):
+            raise InvalidMedia("Voice messages cannot contain video tracks.")
+        if b"A_OPUS" not in head and b"A_VORBIS" not in head:
+            raise InvalidMedia("WebM voice messages must use Opus or Vorbis audio.")
+        return "audio/webm"
+
+    # 2. Ogg audio (Firefox MediaRecorder)
+    if head.startswith(b"OggS\x00"):
+        if b"\x80theora" in head[:512]:
+            raise InvalidMedia("Voice messages cannot contain video tracks.")
+        if b"OpusHead" not in head[:512] and b"\x01vorbis" not in head[:512]:
+            raise InvalidMedia("Ogg voice messages must use Opus or Vorbis audio.")
+        return "audio/ogg"
+
+    # 3. MP4 / M4A audio (Safari / iOS MediaRecorder)
+    if len(head) >= 24 and head[4:8] == b"ftyp":
+        brands = head[8:64]
+        if not any(b in brands for b in _MP4_AUDIO_BRANDS):
+            raise InvalidMedia("Unsupported MP4 audio brand.")
+        if any(v in head for v in _MP4_VIDEO_CODECS):
+            raise InvalidMedia("Voice messages cannot contain video tracks.")
+        if b"mp4a" not in head and b"alac" not in head and b"Opus" not in head:
+            raise InvalidMedia("MP4 voice messages must contain an audio track.")
+        return "audio/mp4"
+
+    # 4. RIFF WAVE
+    if head[:4] == b"RIFF" and head[8:12] == b"WAVE" and b"fmt " in head[12:128]:
+        return "audio/wav"
+
+    raise InvalidMedia("Unsupported voice recording format. Use WebM, Ogg, M4A or WAV audio.")

@@ -72,6 +72,8 @@ class Settings:
     cookie_secure: bool
     session_days: int
     max_upload_mb: int
+    max_voice_mb: int
+    max_json_mb: int
     auto_migrate: bool
     stun_urls: list[str]
     turn_urls: list[str]
@@ -104,7 +106,9 @@ def load_settings() -> Settings:
         allowed_origins=_list(os.getenv("BLOOM_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")),
         cookie_secure=_bool(os.getenv("BLOOM_COOKIE_SECURE"), env == "production"),
         session_days=int(os.getenv("BLOOM_SESSION_DAYS", "30")),
-        max_upload_mb=int(os.getenv("BLOOM_MAX_UPLOAD_MB", "20")),
+        max_upload_mb=max(1, int(os.getenv("BLOOM_MAX_UPLOAD_MB", "20"))),
+        max_voice_mb=max(1, int(os.getenv("BLOOM_MAX_VOICE_MB", "10"))),
+        max_json_mb=max(1, int(os.getenv("BLOOM_MAX_JSON_MB", "2"))),
         auto_migrate=_bool(os.getenv("BLOOM_AUTO_MIGRATE"), True),
         stun_urls=_list(os.getenv("STUN_URLS", "stun:stun.l.google.com:19302")),
         turn_urls=_list(os.getenv("TURN_URLS")),
