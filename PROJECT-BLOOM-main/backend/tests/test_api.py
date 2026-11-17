@@ -647,5 +647,43 @@ class BloomApiTest(unittest.TestCase):
                 self.assertEqual(ev_b["message"]["id"], sent["id"])
 
 
+    def test_09_phase5_studio_recipe_v2_and_themes(self) -> None:
+        a, _ = self.client("iris", "Iris")
+
+        # 1. Backward compatibility: v1 recipe without new fields works
+        v1_recipe = {"format": "bloom-flower", "version": 1, "word": "vintage"}
+        des1 = a.post("/api/designs", json={"title": "V1 Flower", "recipe": v1_recipe}).json()
+        self.assertEqual(des1["recipe"]["petalStyle"], "classic")
+        self.assertEqual(des1["recipe"]["arrangement"], "rings")
+        self.assertEqual(des1["recipe"]["centerText"], "")
+        self.assertEqual(des1["recipe"]["stemMessage"], "")
+
+        # 2. Studio 2.0 v2 recipe with petal styles, arrangements, and messages
+        v2_recipe = {
+            "format": "bloom-flower",
+            "version": 2,
+            "word": "solace",
+            "shape": "flower",
+            "petalStyle": "pointed",
+            "arrangement": "spiral",
+            "centerText": "Bloom 2.0",
+            "stemMessage": "For my dearest",
+            "themeId": "botanical",
+            "bgStyle": "paper",
+        }
+        des2 = a.post("/api/designs", json={"title": "Botanical Solace", "recipe": v2_recipe}).json()
+        self.assertEqual(des2["recipe"]["petalStyle"], "pointed")
+        self.assertEqual(des2["recipe"]["arrangement"], "spiral")
+        self.assertEqual(des2["recipe"]["centerText"], "Bloom 2.0")
+        self.assertEqual(des2["recipe"]["stemMessage"], "For my dearest")
+        self.assertEqual(des2["recipe"]["bgStyle"], "paper")
+
+        # 3. Validation rejection on invalid styles or text limits
+        bad_style = a.post("/api/designs", json={"recipe": {**v2_recipe, "petalStyle": "extraterrestrial"}})
+        self.assertEqual(bad_style.status_code, 422)
+        long_msg = a.post("/api/designs", json={"recipe": {**v2_recipe, "stemMessage": "x" * 50}})
+        self.assertEqual(long_msg.status_code, 422)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,38 +1,27 @@
 /**
- * Bloom flower engine — a faithful port of the original Python Turtle program
- * (legacy/bloom_turtle.py) to TypeScript.
+ * Bloom flower engine — faithful port of legacy/bloom_turtle.py extended
+ * for Studio 2.0 (petal styles, arrangements, center & stem text inscriptions).
  *
- * The engine does not draw anything itself. It replays the original turtle
- * program and records what the turtle would have drawn as simple primitives
- * (line segments and text stamps) in turtle coordinates:
- *   - origin (0, 0) at the centre of the original 900 x 600 window
- *   - x grows to the right, y grows UP (like turtle, unlike the browser)
- *
- * Renderers (render.ts) turn those primitives into SVG, PNG or canvas output.
- *
- * With DEFAULT_RECIPE the primitives match the original program exactly:
- * same rings, same petal maths, same stem arcs (including turtle's own
- * polygon approximation of circle()), the pen-down quirk that draws lines
- * through the first leaf, and the floating hearts.
+ * When defaults are used (petalStyle="classic", arrangement="rings"),
+ * coordinates match the original Python Turtle program exactly.
  */
 
-import type { FlowerRecipe } from "./recipe";
+import type { BgStyle, FlowerRecipe, PetalStyle } from "./recipe";
 import { evenlySpaced, shapeRings, type RingShape } from "./shapes";
 
 export const ORIGINAL_WIDTH = 900;
 export const ORIGINAL_HEIGHT = 600;
 
-/** Tk font ("arial", 8, "bold") is 8 points; at 96 dpi that is about 10.7 px. */
 export const PETAL_FONT_PX = 10.7;
-/** Tk font ("Courier", 10, "bold") used for the hearts. */
 export const HEART_FONT_PX = 13.3;
+export const CENTER_FONT_PX = 14;
+export const STEM_FONT_PX = 9.5;
 
 export const PETAL_FONT_FAMILY = "Arial, 'Helvetica Neue', Helvetica, sans-serif";
 export const HEART_FONT_FAMILY = "'Courier New', Courier, monospace";
 
 export interface LinePrimitive {
   kind: "line";
-  /** Points of one continuous pen stroke, in turtle coordinates. */
   points: Array<[number, number]>;
   color: string;
   width: number;
@@ -40,7 +29,6 @@ export interface LinePrimitive {
 
 export interface TextPrimitive {
   kind: "text";
-  /** Bottom-centre of the text, like turtle.write(align="center"). */
   x: number;
   y: number;
   text: string;
@@ -55,16 +43,13 @@ export type Primitive = LinePrimitive | TextPrimitive;
 export interface FlowerDrawing {
   primitives: Primitive[];
   background: string;
+  bgStyle: BgStyle;
 }
-
-// ---------------------------------------------------------------------------
-// A tiny turtle that records instead of drawing.
-// ---------------------------------------------------------------------------
 
 class RecordingTurtle {
   x = 0;
   y = 0;
-  heading = 0; // degrees, 0 = east, counter-clockwise (turtle "standard" mode)
+  heading = 0;
   isDown = false;
   color = "black";
   width = 1;
@@ -122,10 +107,6 @@ class RecordingTurtle {
     this.heading = (this.heading + degrees) % 360;
   }
 
-  /**
-   * Same algorithm as Python's turtle.circle(radius, extent): the arc is
-   * drawn as a polygon with turtle's own choice of step count.
-   */
   circle(radius: number, extent: number): void {
     const frac = Math.abs(extent) / 360;
     const steps = 1 + Math.floor(Math.min(11 + Math.abs(radius) / 6, 59) * frac);
@@ -150,13 +131,6 @@ class RecordingTurtle {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Deterministic random numbers so a recipe always rebuilds the same flower.
-// (Python's random module is not reproducible across languages, so the
-// hearts use a seed instead. Same rule as the original: 12 tries, keep the
-// ones further than 130 px from the centre.)
-// ---------------------------------------------------------------------------
-
 export function seededRandom(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -170,10 +144,6 @@ export function seededRandom(seed: number): () => number {
 function randint(random: () => number, low: number, high: number): number {
   return low + Math.floor(random() * (high - low + 1));
 }
-
-// ---------------------------------------------------------------------------
-// The original rings. Optional recipe controls only scale these numbers.
-// ---------------------------------------------------------------------------
 
 export const ORIGINAL_RINGS = [
   { radius: 0, count: 4, length: 40, width: 15, offset: 45 },
@@ -189,8 +159,9 @@ export function buildFlower(recipe: FlowerRecipe): FlowerDrawing {
   const word = recipe.word;
   const c = recipe.colors;
   const petalScale = recipe.petalSize;
+  const style: PetalStyle = recipe.petalStyle || "classic";
+  const arrangement = recipe.arrangement || "rings";
 
-  // def draw_petal(base, base_angle, length, width, color, points=20)
   function drawPetal(
     base: [number, number],
     baseAngle: number,
@@ -198,31 +169,45 @@ export function buildFlower(recipe: FlowerRecipe): FlowerDrawing {
     width: number,
     color: string,
     points = 20,
+    petalWord = word,
   ): void {
     t.setColor(color);
     const [bx, by] = base;
     const cosA = Math.cos(baseAngle);
     const sinA = Math.sin(baseAngle);
+
     for (let i = 0; i <= points; i++) {
       const theta = (i * Math.PI) / points;
-      const out = length * Math.sin(theta);
-      const side = width * Math.sin(theta) * Math.cos(theta);
+      let out = length * Math.sin(theta);
+      let side = width * Math.sin(theta) * Math.cos(theta);
+
+      if (style === "pointed") {
+        out = length * Math.sin(theta) ** 0.85;
+        side = width * Math.sin(theta) * Math.cos(theta) ** 3;
+      } else if (style === "wavy") {
+        const ripple = 1 + 0.16 * Math.sin(theta * 6);
+        out *= ripple;
+        side *= ripple;
+      } else if (style === "chrysanthemum") {
+        out = length * 1.25 * Math.sin(theta);
+        side = width * 0.42 * Math.sin(theta) * Math.cos(theta);
+      } else if (style === "dahlia") {
+        side = width * (Math.sin(theta) ** 1.3) * Math.sign(Math.cos(theta)) * (Math.abs(Math.cos(theta)) ** 0.6);
+      }
+
       const rx = out * cosA - side * sinA;
       const ry = out * sinA + side * cosA;
       t.goto(bx + rx, by + ry);
-      t.write(word, PETAL_FONT_PX, PETAL_FONT_FAMILY, "bold");
+      t.write(petalWord, PETAL_FONT_PX, PETAL_FONT_FAMILY, "bold");
     }
   }
 
-  // def draw_leaf(base, angle_deg, length, width)
   function drawLeaf(base: [number, number], angleDeg: number, length: number, width: number): void {
-    drawPetal(base, (angleDeg * Math.PI) / 180, length, width, c.green, 22);
+    drawPetal(base, (angleDeg * Math.PI) / 180, length, width, c.green, 22, word);
   }
 
-  // ---- heart burst: Sindhu's heart-rays turtle sketch, in calm colours ----
-  // for i in range(120): goto(0, 40); pendown; goto(heart point × 15);
-  //   then 8 × (forward 8, backward 8, right 45) for a sparkle at the tip.
   const isFlower = !recipe.shape || recipe.shape === "flower";
+
   if (recipe.shape === "heartburst") {
     const rays = Math.max(24, Math.round(120 * recipe.petalCount));
     const k = 15 * petalScale * 0.92;
@@ -246,7 +231,6 @@ export function buildFlower(recipe: FlowerRecipe): FlowerDrawing {
       }
     }
     t.penup();
-    // the word, written along a small heart in the middle
     const small: Array<[number, number]> = [];
     for (let i = 0; i < 360; i++) {
       const a = (i / 360) * Math.PI * 2;
@@ -259,7 +243,6 @@ export function buildFlower(recipe: FlowerRecipe): FlowerDrawing {
     }
   }
 
-  // ---- word shapes (heart, star, ...): five rings of words, centre first ----
   if (!isFlower && recipe.shape !== "heartburst") {
     const colorsByRing = [c.ring1, c.ring2, c.ring3, c.ring4, c.ring5];
     t.penup();
@@ -272,7 +255,8 @@ export function buildFlower(recipe: FlowerRecipe): FlowerDrawing {
     });
   }
 
-  // ---- stem and leaves (same order as the original program) ----
+  // Stem & leaves (exact Turtle order)
+  const stemPoints: Array<[number, number]> = [];
   if (isFlower && recipe.showStem) {
     t.penup();
     t.goto(0, -30);
@@ -282,12 +266,11 @@ export function buildFlower(recipe: FlowerRecipe): FlowerDrawing {
     t.setColor(c.green);
     t.pensize(4);
     t.circle(250, 25);
+    stemPoints.push([t.x, t.y]);
 
     const pos1: [number, number] = [t.x, t.y];
     const head1 = t.heading;
     t.pensize(1);
-    // In the original the pen is still down here, so the first leaf also gets
-    // thin connecting lines. That is part of its look, so it is kept.
     if (recipe.showLeaves) drawLeaf(pos1, 160, 50, 25);
     t.penup();
     t.goto(pos1[0], pos1[1]);
@@ -297,6 +280,7 @@ export function buildFlower(recipe: FlowerRecipe): FlowerDrawing {
     t.setColor(c.green);
     t.pensize(4);
     t.circle(250, 30);
+    stemPoints.push([t.x, t.y]);
     t.penup();
     t.pensize(1);
 
@@ -311,24 +295,75 @@ export function buildFlower(recipe: FlowerRecipe): FlowerDrawing {
     t.setColor(c.green);
     t.pensize(4);
     t.circle(250, 30);
+    stemPoints.push([t.x, t.y]);
     t.penup();
     t.pensize(1);
+
+    // Stamped stem dedication message
+    if (recipe.stemMessage && recipe.stemMessage.trim()) {
+      t.setColor(c.green);
+      const msg = recipe.stemMessage.trim();
+      const p1 = stemPoints[0] || [0, -80];
+      const p2 = stemPoints[stemPoints.length - 1] || [0, -180];
+      const mx = (p1[0] + p2[0]) / 2 + 14;
+      const my = (p1[1] + p2[1]) / 2;
+      t.goto(mx, my);
+      t.write(msg, STEM_FONT_PX, PETAL_FONT_FAMILY, "normal");
+    }
   }
 
-  // ---- petal rings ----
+  // Petal generation: rings (default Turtle), spiral, or burst
   const ringColors = [c.ring1, c.ring2, c.ring3, c.ring4, c.ring5];
-  if (isFlower) ORIGINAL_RINGS.forEach((ring, index) => {
-    const count = Math.max(3, Math.round(ring.count * recipe.petalCount));
-    for (let i = 0; i < count; i++) {
-      const angle = (360 / count) * i + ring.offset;
-      const rad = (angle * Math.PI) / 180;
-      const baseX = ring.radius * petalScale * Math.cos(rad);
-      const baseY = ring.radius * petalScale * Math.sin(rad);
-      drawPetal([baseX, baseY], rad, ring.length * petalScale, ring.width * petalScale, ringColors[index]);
+  if (isFlower) {
+    if (arrangement === "spiral") {
+      // Fibonacci phyllotaxis (Golden angle ~137.507764°)
+      const totalPetals = Math.round(36 * recipe.petalCount);
+      const goldenAngle = 137.507764 * (Math.PI / 180);
+      for (let n = 0; n < totalPetals; n++) {
+        const radius = Math.sqrt(n) * 8.5 * petalScale;
+        const angle = n * goldenAngle;
+        const bx = radius * Math.cos(angle);
+        const by = radius * Math.sin(angle);
+        const colorIdx = Math.min(4, Math.floor((n / totalPetals) * 5));
+        const len = (40 + (n / totalPetals) * 70) * petalScale;
+        const wid = (16 + (n / totalPetals) * 38) * petalScale;
+        drawPetal([bx, by], angle, len, wid, ringColors[colorIdx]);
+      }
+    } else if (arrangement === "burst") {
+      // Starburst outward rays
+      const rays = Math.round(28 * recipe.petalCount);
+      for (let i = 0; i < rays; i++) {
+        const rad = ((i * 360) / rays) * (Math.PI / 180);
+        const isLong = i % 2 === 0;
+        const len = (isLong ? 115 : 75) * petalScale;
+        const wid = (isLong ? 40 : 25) * petalScale;
+        const color = isLong ? c.ring5 : c.ring3;
+        drawPetal([0, 0], rad, len, wid, color);
+      }
+    } else {
+      // Default: Original 5 concentric rings
+      ORIGINAL_RINGS.forEach((ring, index) => {
+        const count = Math.max(3, Math.round(ring.count * recipe.petalCount));
+        for (let i = 0; i < count; i++) {
+          const angle = (360 / count) * i + ring.offset;
+          const rad = (angle * Math.PI) / 180;
+          const baseX = ring.radius * petalScale * Math.cos(rad);
+          const baseY = ring.radius * petalScale * Math.sin(rad);
+          drawPetal([baseX, baseY], rad, ring.length * petalScale, ring.width * petalScale, ringColors[index]);
+        }
+      });
     }
-  });
 
-  // ---- floating hearts ----
+    // Center custom name/inscription
+    if (recipe.centerText && recipe.centerText.trim()) {
+      t.penup();
+      t.setColor(c.ring1);
+      t.goto(0, -5);
+      t.write(recipe.centerText.trim(), CENTER_FONT_PX, PETAL_FONT_FAMILY, "bold");
+    }
+  }
+
+  // Floating hearts / decorations
   if (recipe.showHearts) {
     t.penup();
     t.setColor(c.hearts);
@@ -345,7 +380,7 @@ export function buildFlower(recipe: FlowerRecipe): FlowerDrawing {
     }
   }
 
-  // ---- optional rotation of the whole flower around its centre ----
+  // Global rotation
   if (recipe.rotation) {
     const rad = (recipe.rotation * Math.PI) / 180;
     const cos = Math.cos(rad);
@@ -353,16 +388,12 @@ export function buildFlower(recipe: FlowerRecipe): FlowerDrawing {
     const rotate = (x: number, y: number): [number, number] => [x * cos - y * sin, x * sin + y * cos];
     for (const p of primitives) {
       if (p.kind === "line") p.points = p.points.map(([x, y]) => rotate(x, y));
-      else if (p.sizePx !== HEART_FONT_PX) [p.x, p.y] = rotate(p.x, p.y); // decorations keep their spots
+      else if (p.sizePx !== HEART_FONT_PX) [p.x, p.y] = rotate(p.x, p.y);
     }
   }
 
-  return { primitives, background: c.background };
+  return { primitives, background: c.background, bgStyle: recipe.bgStyle || "solid" };
 }
-
-// ---------------------------------------------------------------------------
-// Bounding box, used to crop a flower tightly for photo overlays.
-// ---------------------------------------------------------------------------
 
 export interface Box {
   minX: number;

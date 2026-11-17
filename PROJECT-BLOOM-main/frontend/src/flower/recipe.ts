@@ -1,7 +1,6 @@
 /**
  * The Bloom flower recipe: everything needed to rebuild a flower exactly.
- * Recipes are plain JSON, saved with designs, journal entries and shared
- * projects, and can be downloaded as a .bloom.json file.
+ * Fully backward-compatible with version 1 recipes.
  */
 
 export interface FlowerColors {
@@ -20,31 +19,33 @@ import type { ShapeId } from "./shapes";
 
 const SHAPE_IDS: ShapeId[] = ["flower", "heart", "heartburst", "star", "butterfly", "infinity", "moon"];
 
+export type PetalStyle = "classic" | "pointed" | "wavy" | "chrysanthemum" | "dahlia";
+export type ArrangementKind = "rings" | "spiral" | "burst";
+export type BgStyle = "solid" | "radial" | "studio" | "paper";
+
 export interface FlowerRecipe {
   format: "bloom-flower";
-  version: 1;
+  version: 1 | 2;
   word: string;
-  /** "flower" is the original Bloom flower; the others are word shapes. */
   shape: ShapeId;
   colors: FlowerColors;
-  /** 1 = the original petal size. */
+  petalStyle?: PetalStyle;
+  arrangement?: ArrangementKind;
+  centerText?: string;
+  stemMessage?: string;
+  themeId?: string;
+  bgStyle?: BgStyle;
   petalSize: number;
-  /** 1 = the original number of petals per ring (4, 5, 7, 9, 12). */
   petalCount: number;
-  /** Degrees; 0 = the original upright flower. */
   rotation: number;
   showStem: boolean;
   showLeaves: boolean;
   showHearts: boolean;
-  /** The little floating decoration (the original is ♡). */
   decoration: string;
-  /** How many times to try placing a decoration (the original tries 12). */
   decorCount: number;
-  /** Decides where the floating hearts land. */
   seed: number;
 }
 
-/** The colours of the original Python program. */
 export const ORIGINAL_COLORS: FlowerColors = {
   ring1: "#ffe6f2",
   ring2: "#ffb3d9",
@@ -71,9 +72,15 @@ export function newSeed(): number {
 export function defaultRecipe(word = "love"): FlowerRecipe {
   return {
     format: "bloom-flower",
-    version: 1,
+    version: 2,
     word,
     shape: "flower",
+    petalStyle: "classic",
+    arrangement: "rings",
+    centerText: "",
+    stemMessage: "",
+    themeId: "",
+    bgStyle: "solid",
     colors: { ...ORIGINAL_COLORS },
     petalSize: 1,
     petalCount: 1,
@@ -87,7 +94,6 @@ export function defaultRecipe(word = "love"): FlowerRecipe {
   };
 }
 
-/** Ready-made decorations; people can also type their own. */
 export const DECORATIONS = ["♡", "♥", "★", "☆", "✿", "❀", "✦", "☾", "♪", "∞", "<3", "xoxo"];
 export const MAX_DECORATION_LENGTH = 6;
 
@@ -95,6 +101,14 @@ export function cleanWord(raw: string): string {
   return Array.from(raw.replace(/\s+/g, " ").trim())
     .filter((ch) => ch >= " ")
     .slice(0, MAX_WORD_LENGTH)
+    .join("");
+}
+
+export function cleanShortText(raw: unknown, maxLen = 32): string {
+  if (typeof raw !== "string") return "";
+  return Array.from(raw.replace(/\s+/g, " ").trim())
+    .filter((ch) => ch >= " ")
+    .slice(0, maxLen)
     .join("");
 }
 
@@ -106,10 +120,10 @@ function clamp(value: unknown, min: number, max: number, fallback: number): numb
   return Math.min(max, Math.max(min, n));
 }
 
-/**
- * Turns anything (a saved file, server data, an old version) into a valid
- * recipe. Unknown or broken values fall back to the original design.
- */
+const PETAL_STYLES: PetalStyle[] = ["classic", "pointed", "wavy", "chrysanthemum", "dahlia"];
+const ARRANGEMENTS: ArrangementKind[] = ["rings", "spiral", "burst"];
+const BG_STYLES: BgStyle[] = ["solid", "radial", "studio", "paper"];
+
 export function normalizeRecipe(input: unknown): FlowerRecipe {
   const base = defaultRecipe();
   if (!input || typeof input !== "object") return base;
@@ -121,11 +135,18 @@ export function normalizeRecipe(input: unknown): FlowerRecipe {
     if (typeof value === "string" && HEX.test(value)) colors[key] = value.toLowerCase();
   });
   const word = typeof data.word === "string" ? cleanWord(data.word) : "";
+
   return {
     format: "bloom-flower",
-    version: 1,
+    version: 2,
     word: word || base.word,
     shape: SHAPE_IDS.includes(data.shape as ShapeId) ? (data.shape as ShapeId) : "flower",
+    petalStyle: PETAL_STYLES.includes(data.petalStyle as PetalStyle) ? (data.petalStyle as PetalStyle) : "classic",
+    arrangement: ARRANGEMENTS.includes(data.arrangement as ArrangementKind) ? (data.arrangement as ArrangementKind) : "rings",
+    centerText: cleanShortText(data.centerText, 32),
+    stemMessage: cleanShortText(data.stemMessage, 48),
+    themeId: typeof data.themeId === "string" ? data.themeId : "",
+    bgStyle: BG_STYLES.includes(data.bgStyle as BgStyle) ? (data.bgStyle as BgStyle) : "solid",
     colors,
     petalSize: clamp(data.petalSize, LIMITS.petalSize.min, LIMITS.petalSize.max, 1),
     petalCount: clamp(data.petalCount, LIMITS.petalCount.min, LIMITS.petalCount.max, 1),
@@ -145,6 +166,10 @@ export function normalizeRecipe(input: unknown): FlowerRecipe {
 export function isOriginalShape(recipe: FlowerRecipe): boolean {
   return (
     recipe.shape === "flower" &&
+    (!recipe.petalStyle || recipe.petalStyle === "classic") &&
+    (!recipe.arrangement || recipe.arrangement === "rings") &&
+    !recipe.centerText &&
+    !recipe.stemMessage &&
     recipe.petalSize === 1 &&
     recipe.petalCount === 1 &&
     recipe.rotation === 0 &&

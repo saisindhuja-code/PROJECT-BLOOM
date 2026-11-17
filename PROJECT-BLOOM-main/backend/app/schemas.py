@@ -43,12 +43,23 @@ class FlowerColors(BaseModel):
         return value.lower()
 
 
+PetalStyle = Literal["classic", "pointed", "wavy", "chrysanthemum", "dahlia"]
+ArrangementKind = Literal["rings", "spiral", "burst"]
+BgStyle = Literal["solid", "radial", "studio", "paper"]
+
+
 class FlowerRecipe(BaseModel):
     model_config = ConfigDict(extra="ignore")
     format: Literal["bloom-flower"] = "bloom-flower"
-    version: Literal[1] = 1
+    version: int = Field(default=1, ge=1, le=2)
     word: str = Field(min_length=1, max_length=24)
     shape: Literal["flower", "heart", "heartburst", "star", "butterfly", "infinity", "moon"] = "flower"
+    petalStyle: PetalStyle = "classic"
+    arrangement: ArrangementKind = "rings"
+    centerText: str = Field(default="", max_length=32)
+    stemMessage: str = Field(default="", max_length=48)
+    themeId: str = Field(default="", max_length=32)
+    bgStyle: BgStyle = "solid"
     colors: FlowerColors = Field(default_factory=FlowerColors)
     petalSize: float = Field(default=1, ge=0.6, le=1.5)
     petalCount: float = Field(default=1, ge=0.5, le=2)
@@ -59,6 +70,12 @@ class FlowerRecipe(BaseModel):
     decoration: str = Field(default="♡", min_length=1, max_length=6)
     decorCount: int = Field(default=12, ge=0, le=40)
     seed: int = Field(default=20250101, ge=0, le=2**32 - 1)
+
+    @field_validator("centerText", "stemMessage")
+    @classmethod
+    def _clean_text(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        return "".join(ch for ch in cleaned if ch.isprintable())
 
     @field_validator("word")
     @classmethod

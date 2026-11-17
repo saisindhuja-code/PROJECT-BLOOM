@@ -1,7 +1,4 @@
-/**
- * The flower settings: word, paints, and the optional shape controls.
- * Used by the Studio and wherever a flower is chosen (Together, Live).
- */
+/** Flower customization controls for Studio 2.0. */
 import { useState } from "react";
 import {
   DECORATIONS,
@@ -12,10 +9,14 @@ import {
   cleanWord,
   isOriginalShape,
   newSeed,
+  type ArrangementKind,
+  type BgStyle,
   type FlowerColors,
   type FlowerRecipe,
+  type PetalStyle,
 } from "../flower/recipe";
 import { SHAPES, type ShapeId } from "../flower/shapes";
+import { STUDIO_THEMES, type StudioThemePreset } from "../flower/studioThemes";
 import { FlowerPreview } from "./FlowerPreview";
 import { IconReset, IconShuffle } from "./Icons";
 import { Slider, Toggle } from "./ui";
@@ -31,7 +32,36 @@ const PAINTS: Array<{ key: keyof FlowerColors; name: string }> = [
   { key: "background", name: "Canvas" },
 ];
 
-export function WordField({ recipe, onChange, autoFocus }: { recipe: FlowerRecipe; onChange: (r: FlowerRecipe) => void; autoFocus?: boolean }) {
+const PETAL_STYLES: Array<{ id: PetalStyle; name: string; hint: string }> = [
+  { id: "classic", name: "Classic", hint: "Original parametric curve" },
+  { id: "pointed", name: "Pointed", hint: "Sharpened apex (lotus / lily)" },
+  { id: "wavy", name: "Wavy", hint: "Ruffled petal edge (carnation)" },
+  { id: "chrysanthemum", name: "Chrysanthemum", hint: "Slender, tapered rays" },
+  { id: "dahlia", name: "Dahlia", hint: "Cupped layered curve" },
+];
+
+const ARRANGEMENTS: Array<{ id: ArrangementKind; name: string; hint: string }> = [
+  { id: "rings", name: "Concentric rings", hint: "Five balanced rings" },
+  { id: "spiral", name: "Fibonacci spiral", hint: "Golden angle phyllotaxis" },
+  { id: "burst", name: "Starburst", hint: "Alternating radial rays" },
+];
+
+const BG_STYLES: Array<{ id: BgStyle; name: string }> = [
+  { id: "solid", name: "Solid colour" },
+  { id: "radial", name: "Radial glow" },
+  { id: "studio", name: "Studio dark" },
+  { id: "paper", name: "Botanical paper" },
+];
+
+export function WordField({
+  recipe,
+  onChange,
+  autoFocus,
+}: {
+  recipe: FlowerRecipe;
+  onChange: (r: FlowerRecipe) => void;
+  autoFocus?: boolean;
+}) {
   const [draft, setDraft] = useState(recipe.word);
   const [lastWord, setLastWord] = useState(recipe.word);
   if (recipe.word !== lastWord) {
@@ -64,7 +94,131 @@ export function WordField({ recipe, onChange, autoFocus }: { recipe: FlowerRecip
   );
 }
 
-export function Paints({ recipe, onChange }: { recipe: FlowerRecipe; onChange: (r: FlowerRecipe) => void }) {
+export function StudioThemePicker({
+  recipe,
+  onApply,
+}: {
+  recipe: FlowerRecipe;
+  onApply: (theme: StudioThemePreset) => void;
+}) {
+  return (
+    <div className="studio-theme-grid" role="radiogroup" aria-label="Studio Themes">
+      {STUDIO_THEMES.map((th) => {
+        const active = recipe.themeId === th.id;
+        return (
+          <button
+            key={th.id}
+            type="button"
+            className="theme-card studio-theme-card"
+            role="radio"
+            aria-checked={active}
+            aria-pressed={active}
+            title={th.tagline}
+            onClick={() => onApply(th)}
+          >
+            <div className="studio-theme-swatch">
+              <span style={{ background: th.swatch[0] }} />
+              <span style={{ background: th.swatch[1] }} />
+              <span style={{ background: th.swatch[2] }} />
+            </div>
+            <strong>{th.name}</strong>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function PetalStylePicker({
+  recipe,
+  onChange,
+}: {
+  recipe: FlowerRecipe;
+  onChange: (r: FlowerRecipe) => void;
+}) {
+  const current = recipe.petalStyle || "classic";
+  return (
+    <div className="chips" role="radiogroup" aria-label="Petal style">
+      {PETAL_STYLES.map((ps) => (
+        <button
+          key={ps.id}
+          type="button"
+          className="chip"
+          role="radio"
+          aria-checked={current === ps.id}
+          aria-pressed={current === ps.id}
+          title={ps.hint}
+          onClick={() => onChange({ ...recipe, petalStyle: ps.id })}
+        >
+          {ps.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function ArrangementPicker({
+  recipe,
+  onChange,
+}: {
+  recipe: FlowerRecipe;
+  onChange: (r: FlowerRecipe) => void;
+}) {
+  const current = recipe.arrangement || "rings";
+  return (
+    <div className="chips" role="radiogroup" aria-label="Arrangement">
+      {ARRANGEMENTS.map((arr) => (
+        <button
+          key={arr.id}
+          type="button"
+          className="chip"
+          role="radio"
+          aria-checked={current === arr.id}
+          aria-pressed={current === arr.id}
+          title={arr.hint}
+          onClick={() => onChange({ ...recipe, arrangement: arr.id })}
+        >
+          {arr.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function BackgroundStylePicker({
+  recipe,
+  onChange,
+}: {
+  recipe: FlowerRecipe;
+  onChange: (r: FlowerRecipe) => void;
+}) {
+  const current = recipe.bgStyle || "solid";
+  return (
+    <div className="chips" role="radiogroup" aria-label="Canvas background style">
+      {BG_STYLES.map((bg) => (
+        <button
+          key={bg.id}
+          type="button"
+          className="chip"
+          role="radio"
+          aria-checked={current === bg.id}
+          aria-pressed={current === bg.id}
+          onClick={() => onChange({ ...recipe, bgStyle: bg.id })}
+        >
+          {bg.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function Paints({
+  recipe,
+  onChange,
+}: {
+  recipe: FlowerRecipe;
+  onChange: (r: FlowerRecipe) => void;
+}) {
   return (
     <div className="paints">
       {PAINTS.map(({ key, name }) => (
@@ -83,8 +237,13 @@ export function Paints({ recipe, onChange }: { recipe: FlowerRecipe; onChange: (
   );
 }
 
-/** Pick the shape: the original flower, or a word shape. Thumbnails show your own word. */
-export function ShapePicker({ recipe, onPick }: { recipe: FlowerRecipe; onPick: (shape: ShapeId) => void }) {
+export function ShapePicker({
+  recipe,
+  onPick,
+}: {
+  recipe: FlowerRecipe;
+  onPick: (shape: ShapeId) => void;
+}) {
   return (
     <div className="shape-picker" role="radiogroup" aria-label="Shape">
       {SHAPES.map((shape) => (
@@ -111,8 +270,13 @@ export function ShapePicker({ recipe, onPick }: { recipe: FlowerRecipe; onPick: 
   );
 }
 
-/** The little floating decorations (♡ in the original) — pick one or type your own. */
-export function DecorationControls({ recipe, onChange }: { recipe: FlowerRecipe; onChange: (r: FlowerRecipe) => void }) {
+export function DecorationControls({
+  recipe,
+  onChange,
+}: {
+  recipe: FlowerRecipe;
+  onChange: (r: FlowerRecipe) => void;
+}) {
   const [custom, setCustom] = useState(DECORATIONS.includes(recipe.decoration) ? "" : recipe.decoration);
   return (
     <div className="stack">
@@ -121,7 +285,15 @@ export function DecorationControls({ recipe, onChange }: { recipe: FlowerRecipe;
         <>
           <div className="chips decor-chips" role="radiogroup" aria-label="Decoration">
             {DECORATIONS.map((d) => (
-              <button key={d} type="button" className="chip" role="radio" aria-checked={recipe.decoration === d} aria-pressed={recipe.decoration === d} onClick={() => onChange({ ...recipe, decoration: d })}>
+              <button
+                key={d}
+                type="button"
+                className="chip"
+                role="radio"
+                aria-checked={recipe.decoration === d}
+                aria-pressed={recipe.decoration === d}
+                onClick={() => onChange({ ...recipe, decoration: d })}
+              >
                 {d}
               </button>
             ))}
@@ -160,11 +332,29 @@ export function DecorationControls({ recipe, onChange }: { recipe: FlowerRecipe;
   );
 }
 
-export function ShapeControls({ recipe, onChange }: { recipe: FlowerRecipe; onChange: (r: FlowerRecipe) => void }) {
+export function ShapeControls({
+  recipe,
+  onChange,
+}: {
+  recipe: FlowerRecipe;
+  onChange: (r: FlowerRecipe) => void;
+}) {
   const original = isOriginalShape(recipe);
   const isFlower = recipe.shape === "flower";
   return (
     <div className="stack">
+      {isFlower && (
+        <>
+          <div className="stack tight">
+            <span className="label">Petal Shape</span>
+            <PetalStylePicker recipe={recipe} onChange={onChange} />
+          </div>
+          <div className="stack tight">
+            <span className="label">Arrangement</span>
+            <ArrangementPicker recipe={recipe} onChange={onChange} />
+          </div>
+        </>
+      )}
       <Slider
         label={isFlower ? "Petal size" : "Size"}
         value={recipe.petalSize}
@@ -173,7 +363,7 @@ export function ShapeControls({ recipe, onChange }: { recipe: FlowerRecipe; onCh
         onChange={(petalSize) => onChange({ ...recipe, petalSize })}
       />
       <Slider
-        label={isFlower ? "Petals per ring" : recipe.shape === "heartburst" ? "Rays" : "Word density"}
+        label={isFlower ? "Petal density" : recipe.shape === "heartburst" ? "Rays" : "Word density"}
         value={recipe.petalCount}
         {...LIMITS.petalCount}
         format={(v) => `${Math.round(v * 100)}%`}
@@ -198,10 +388,25 @@ export function ShapeControls({ recipe, onChange }: { recipe: FlowerRecipe; onCh
         style={{ justifySelf: "start" }}
         disabled={original}
         onClick={() =>
-          onChange({ ...recipe, shape: "flower", petalSize: 1, petalCount: 1, rotation: 0, showStem: true, showLeaves: true, showHearts: true, decoration: "♡", decorCount: 12 })
+          onChange({
+            ...recipe,
+            shape: "flower",
+            petalStyle: "classic",
+            arrangement: "rings",
+            centerText: "",
+            stemMessage: "",
+            petalSize: 1,
+            petalCount: 1,
+            rotation: 0,
+            showStem: true,
+            showLeaves: true,
+            showHearts: true,
+            decoration: "♡",
+            decorCount: 12,
+          })
         }
       >
-        <IconReset /> Back to the original flower
+        <IconReset /> Back to original flower
       </button>
     </div>
   );
