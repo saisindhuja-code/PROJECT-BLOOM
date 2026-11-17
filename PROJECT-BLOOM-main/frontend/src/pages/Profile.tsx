@@ -1,7 +1,7 @@
 /** Public / friends-scoped user profile by Bloom ID. */
 import { useCallback, useEffect, useState } from "react";
 import { FlowerPreview } from "../components/FlowerPreview";
-import { IconArrowLeft, IconEdit, IconFlower, IconLive, IconTogether } from "../components/Icons";
+import { IconArrowLeft, IconChat, IconEdit, IconFlower, IconLive, IconTogether } from "../components/Icons";
 import { ReactionBar } from "../components/ReactionBar";
 import { Avatar, Empty, Loading, Modal, SignInNeeded, formatDate } from "../components/ui";
 import { normalizeRecipe, type FlowerRecipe } from "../flower/recipe";
@@ -225,6 +225,20 @@ export function ProfilePage({ bloomId }: { bloomId?: string }) {
               )}
               {profile.relation === "friend" && (
                 <>
+                  <button
+                    type="button"
+                    className="btn primary"
+                    onClick={async () => {
+                      try {
+                        const conv = await api<{ id: number }>("/api/chat/dm", { body: { bloom_id: profile.bloom_id } });
+                        navigate(`/chat/${conv.id}`);
+                      } catch (e) {
+                        toast(errorMessage(e), "error");
+                      }
+                    }}
+                  >
+                    <IconChat /> Message
+                  </button>
                   <button type="button" className="btn" onClick={() => navigate(`/together?with=${encodeURIComponent(profile.bloom_id)}`)}>
                     <IconTogether /> Together
                   </button>

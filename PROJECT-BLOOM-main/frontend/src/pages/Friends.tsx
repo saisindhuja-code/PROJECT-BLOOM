@@ -1,6 +1,6 @@
 /** Bloom IDs, user search, profiles and friends. */
 import { useCallback, useEffect, useState } from "react";
-import { IconCopy, IconLive, IconTogether, IconTrash } from "../components/Icons";
+import { IconChat, IconCopy, IconLive, IconTogether, IconTrash } from "../components/Icons";
 import { Avatar, Empty, Loading, SignInNeeded } from "../components/ui";
 import { api, errorMessage } from "../lib/api";
 import { Link, useRouter } from "../lib/router";
@@ -261,6 +261,22 @@ export function FriendsPage() {
                         </Link>
                         <span className="bloom-id">{f.bloom_id}</span>
                       </div>
+                      <button
+                        type="button"
+                        className="btn icon small quiet"
+                        title="Direct message"
+                        aria-label={`Chat with ${f.display_name}`}
+                        onClick={async () => {
+                          try {
+                            const conv = await api<{ id: number }>("/api/chat/dm", { body: { bloom_id: f.bloom_id } });
+                            navigate(`/chat/${conv.id}`);
+                          } catch (e) {
+                            toast(errorMessage(e), "error");
+                          }
+                        }}
+                      >
+                        <IconChat />
+                      </button>
                       <button type="button" className="btn icon small quiet" title="Make something together" aria-label={`Make something together with ${f.display_name}`} onClick={() => navigate(`/together?with=${encodeURIComponent(f.bloom_id)}`)}>
                         <IconTogether />
                       </button>

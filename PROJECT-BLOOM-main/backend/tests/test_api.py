@@ -553,5 +553,99 @@ class BloomApiTest(unittest.TestCase):
         self.assertEqual(a.get("/api/notifications").json()["unread_count"], 0)
 
 
+    def test_08_phase4_unified_bloom_chat(self) -> None:
+        a, me_a = self.client("maya", "Maya")
+        b, me_b = self.client("noah", "Noah")
+        c, me_c = self.client("olivia", "Olivia")
+
+        # 1. DM requires friendship
+        self.assertEqual(a.post("/api/chat/dm", json={"bloom_id": me_b["bloom_id"]}).status_code, 403)
+        a.post("/api/friends/requests", json={"bloom_id": me_b["bloom_id"]})
+        req = b.get("/api/friends").json()["incoming"][0]["request_id"]
+        b.post(f"/api/friends/requests/{req}/accept")
+
+        dm_a = a.post("/api/chat/dm", json={"bloom_id": me_b["bloom_id"]})
+        self.assertEqual(dm_a.status_code, 201, dm_a.text)
+        dm_id = dm_a.json()["id"]
+        self.assertEqual(b.post("/api/chat/dm", json={"bloom_id": me_a["bloom_id"]}).json()["id"], dm_id)
+
+        m1 = a.post(f"/api/chat/conversations/{dm_id}/messages", json={"kind": "text", "body": "Hey Noah!"}).json()
+        img = self.upload(a, kind="chat_image")
+        m2 = a.post(f"/api/chat/conversations/{dm_id}/messages", json={"kind": "image", "media_id": img["id"], "reply_to_id": m1["id"]}).json()
+        ogg = b"OggS\x00\x02" + b"\x00" * 22 + b"OpusHead" + b"\x00" * 32
+        voice = a.post("/api/media", files={"file": ("v.ogg", ogg, "audio/ogg")}, data={"kind": "voice", "duration_ms": "1200"}).json()
+        m3 = a.post(f"/api/chat/conversations/{dm_id}/messages", json={"kind": "voice", "media_id": voice["id"]}).json()
+        design = a.post("/api/designs", json={"title": "Lotus", "recipe": recipe("lotus")}).json()
+        m4 = a.post(f"/api/chat/conversations/{dm_id}/messages", json={"kind": "shared", "share_type": "design", "share_id": design["id"]}).json()
+        self.assertEqual(m4["shared_ref"]["title"], "Lotus")
+
+        # Privacy checks
+        self.assertEqual(b.get(img["url"]).status_code, 200)
+        self.assertEqual(b.get(voice["url"]).status_code, 200)
+        self.assertEqual(c.get(f"/api/chat/conversations/{dm_id}/messages").status_code, 404)
+        self.assertEqual(c.post(f"/api/chat/conversations/{dm_id}/messages", json={"kind": "text", "body": "hi"}).status_code, 404)
+        self.assertEqual(c.get(img["url"]).status_code, 404)
+        self.assertEqual(c.get(voice["url"]).status_code, 404)
+
+        # Pagination + search + unread + read receipts
+        self.assertEqual(b.get("/api/chat/unread-total").json()["unread_count"], 4)
+        page1 = b.get(f"/api/chat/conversations/{dm_id}/messages", params={"limit": 2}).json()
+        self.assertTrue(page1["has_more"])
+        self.assertEqual([m["id"] for m in page1["items"]], [m3["id"], m4["id"]])
+        page0 = b.get(f"/api/chat/conversations/{dm_id}/messages", params={"before_id": page1["items"][0]["id"], "limit": 2}).json()
+        self.assertEqual([m["id"] for m in page0["items"]], [m1["id"], m2["id"]])
+        self.assertEqual(len(b.get("/api/chat/conversations", params={"q": "Noah!"}).json()), 1)
+
+        b.post(f"/api/chat/conversations/{dm_id}/read")
+        self.assertEqual(b.get("/api/chat/unread-total").json()["unread_count"], 0)
+
+        # Soft delete frees orphaned media
+        self.assertEqual(a.delete(f"/api/chat/messages/{m2['id']}").status_code, 204)
+        self.assertEqual(b.get(img["url"]).status_code, 404)
+
+        # 2. Group Chat with roles & permissions
+        gav = self.upload(a, kind="avatar")
+        grp = a.post("/api/chat/groups", json={"title": "Garden Club", "member_bloom_ids": [me_b["bloom_id"]], "avatar_media_id": gav["id"]}).json()
+        gid = grp["id"]
+        self.assertEqual(b.get(gav["url"]).status_code, 200)
+        self.assertEqual(b.patch(f"/api/chat/groups/{gid}", json={"title": "Hacked"}).status_code, 403)
+        self.assertEqual(a.patch(f"/api/chat/groups/{gid}/members/{me_b['bloom_id']}", json={"role": "admin"}).status_code, 200)
+        self.assertEqual(b.patch(f"/api/chat/groups/{gid}", json={"title": "Botanical Club"}).json()["raw_title"], "Botanical Club")
+        self.assertEqual(a.delete(f"/api/chat/groups/{gid}/members/{me_b['bloom_id']}").status_code, 204)
+        self.assertEqual(b.get(f"/api/chat/conversations/{gid}").status_code, 404)
+        self.assertEqual(b.get(gav["url"]).status_code, 404)
+
+        # 3. Studio Chat directory & joining
+        studio = a.post("/api/chat/studio", json={"title": "Y2K Film Studio", "description": "Share film presets"}).json()
+        sid = studio["id"]
+        self.assertEqual(len(c.get("/api/chat/studio/directory").json()), 1)
+        self.assertEqual(c.get(f"/api/chat/conversations/{sid}/messages").status_code, 404)
+        self.assertEqual(c.post(f"/api/chat/studio/{sid}/join").status_code, 200)
+        self.assertEqual(c.post(f"/api/chat/conversations/{sid}/messages", json={"kind": "sticker", "sticker_id": "rose"}).status_code, 201)
+
+        # 4. Real-time WebSocket chat delivery, typing & channel authorization
+        with live_server() as base:
+            ws_url = base.replace("http", "ws") + "/api/ws"
+            with ws_connect(ws_url, a) as ws_a, ws_connect(ws_url, b) as ws_b:
+                self.assertEqual(recv(ws_a)["type"], "ready")
+                self.assertEqual(recv(ws_b)["type"], "ready")
+                send(ws_b, {"type": "subscribe", "channel": f"conv:{sid}"})
+                self.assertEqual(recv(ws_b)["type"], "error")
+                send(ws_a, {"type": "subscribe", "channel": f"conv:{dm_id}"})
+                self.assertEqual(recv(ws_a)["type"], "subscribed")
+                send(ws_b, {"type": "subscribe", "channel": f"conv:{dm_id}"})
+                self.assertEqual(recv(ws_b)["type"], "subscribed")
+
+                send(ws_a, {"type": "typing", "channel": f"conv:{dm_id}", "active": True})
+                typ = recv(ws_b)
+                self.assertEqual(typ["type"], "typing")
+                self.assertEqual(typ["bloom_id"], me_a["bloom_id"])
+
+                sent = a.post(f"/api/chat/conversations/{dm_id}/messages", json={"kind": "text", "body": "Live msg"}).json()
+                ev_b = recv(ws_b)
+                self.assertEqual(ev_b["type"], "chat.message")
+                self.assertEqual(ev_b["message"]["id"], sent["id"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -219,6 +219,42 @@ export const IconLeaf = (p: IconProps) => (
   </Svg>
 );
 
+export const IconChat = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M5 6.5h14a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H9.5L5 21v-3.5A1.5 1.5 0 0 1 3.5 16V8A1.5 1.5 0 0 1 5 6.5Z" />
+  </Svg>
+);
+
+export const IconSend = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M21 4 10 14M21 4l-6 17-5-7-7-5 18-5Z" />
+  </Svg>
+);
+
+export const IconReply = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M9 14 4 9l5-5" />
+    <path d="M4 9h10a6 6 0 0 1 6 6v3" />
+  </Svg>
+);
+
+export const IconImage = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <circle cx="8.5" cy="10" r="1.5" />
+    <path d="m21 15-4.5-4.5L9 18" />
+  </Svg>
+);
+
+export const IconUsers = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="9" cy="8.5" r="3" />
+    <path d="M3.5 19c.6-3 2.8-4.5 5.5-4.5s4.9 1.5 5.5 4.5" />
+    <circle cx="16.5" cy="9.5" r="2.2" />
+    <path d="M15.5 14.5c2.2.2 4 1.5 4.5 4" />
+  </Svg>
+);
+
 export function BloomMark(p: IconProps) {
   return (
     <svg viewBox="0 0 40 40" aria-hidden="true" {...p}>

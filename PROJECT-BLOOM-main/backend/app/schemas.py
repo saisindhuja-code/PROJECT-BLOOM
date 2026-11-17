@@ -320,3 +320,72 @@ class NotificationPreferences(BaseModel):
     messages: bool = True
     projects: bool = True
     live: bool = True
+MessageKind = Literal["text", "image", "voice", "sticker", "shared"]
+GroupRole = Literal["owner", "admin", "member"]
+
+
+class DmCreateIn(BaseModel):
+    bloom_id: str = Field(max_length=20)
+
+
+class GroupCreateIn(BaseModel):
+    title: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=300)
+    member_bloom_ids: list[str] = Field(default_factory=list, max_length=30)
+    avatar_media_id: int | None = None
+
+    @field_validator("title")
+    @classmethod
+    def _title(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("please name the group")
+        return cleaned
+
+
+class GroupPatchIn(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=300)
+    avatar_media_id: int | None = None
+    remove_avatar: bool = False
+
+    @field_validator("title")
+    @classmethod
+    def _title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("please name the group")
+        return cleaned
+
+
+class GroupRoleIn(BaseModel):
+    role: Literal["admin", "member"]
+
+
+class StudioCreateIn(BaseModel):
+    title: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=300)
+
+    @field_validator("title")
+    @classmethod
+    def _title(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("please name the Studio room")
+        return cleaned
+
+
+class MessageSendIn(BaseModel):
+    kind: MessageKind = "text"
+    body: str = Field(default="", max_length=4000)
+    media_id: int | None = None
+    reply_to_id: int | None = None
+    sticker_id: str | None = Field(default=None, max_length=40)
+    share_type: Literal["design", "entry"] | None = None
+    share_id: int | None = None
+
+
+class MessageReactionIn(BaseModel):
+    kind: ReactionKind

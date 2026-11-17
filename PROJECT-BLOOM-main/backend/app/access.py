@@ -8,11 +8,14 @@ from sqlalchemy.orm import Session
 
 from .models import (
     Contribution,
+    Conversation,
+    ConversationMember,
     Friendship,
     JournalEntry,
     LiveCapture,
     LiveRoom,
     Media,
+    Message,
     Project,
     ProjectMember,
     User,
@@ -115,13 +118,40 @@ def can_view_media(db: Session, media: Media, user: User) -> bool:
     if media.owner_id == user.id:
         return True
 
-    # Profile avatar: visible when the owner's profile is visible to the viewer.
     if media.kind == "avatar":
         owner = db.get(User, media.owner_id)
         if owner is not None and owner.avatar_media_id == media.id:
             return can_view_profile(db, owner, user)
 
-    # Shared through a project contribution.
+    conv_avatar = db.scalar(select(Conversation).where(Conversation.avatar_media_id == media.id))
+    if conv_avatar is not None:
+        if conv_avatar.kind == "studio":
+            return True
+        if (
+            db.scalar(
+                select(ConversationMember.id).where(
+                    ConversationMember.conversation_id == conv_avatar.id,
+                    ConversationMember.user_id == user.id,
+                )
+            )
+            is not None
+        ):
+            return True
+
+    chat_conv_id = db.scalar(
+        select(Message.conversation_id)
+        .join(
+            ConversationMember,
+            and_(
+                ConversationMember.conversation_id == Message.conversation_id,
+                ConversationMember.user_id == user.id,
+            ),
+        )
+        .where(Message.media_id == media.id, Message.deleted_at.is_(None))
+    )
+    if chat_conv_id is not None:
+        return True
+
     shared_projects = db.scalars(
         select(Contribution.project_id)
         .join(
@@ -142,7 +172,6 @@ def can_view_media(db: Session, media: Media, user: User) -> bool:
             if active_membership(db, project_id, media.owner_id) is not None:
                 return True
 
-    # Shared inside a live room.
     capture = db.scalar(
         select(LiveCapture)
         .join(LiveRoom, LiveRoom.id == LiveCapture.room_id)
@@ -154,7 +183,6 @@ def can_view_media(db: Session, media: Media, user: User) -> bool:
     if capture is not None:
         return True
 
-    # Public or friends-shared journal entry finished photo (never original_media_id).
     entries = db.scalars(
         select(JournalEntry).where(
             JournalEntry.photo_media_id == media.id,
@@ -169,16 +197,14 @@ def can_view_media(db: Session, media: Media, user: User) -> bool:
 
 
 def release_media(db: Session, media_id: int | None, doomed: list[str]) -> None:
-    """
-    Removes an upload once nothing refers to it any more. The stored file's key
-    is added to `doomed`; delete those only after the database commit.
-    """
     if media_id is None:
         return
     media = db.get(Media, media_id)
     if media is None:
         return
     used_as_avatar = db.scalar(select(User.id).where(User.avatar_media_id == media_id))
+    used_in_conv = db.scalar(select(Conversation.id).where(Conversation.avatar_media_id == media_id))
+    used_in_msg = db.scalar(select(Message.id).where(Message.media_id == media_id, Message.deleted_at.is_(None)))
     still_used = db.scalar(
         select(JournalEntry.id).where(
             or_(JournalEntry.photo_media_id == media_id, JournalEntry.original_media_id == media_id)
@@ -190,7 +216,7 @@ def release_media(db: Session, media_id: int | None, doomed: list[str]) -> None:
         for contribution in db.scalars(select(Contribution).where(Contribution.user_id == media.owner_id))
         for item in contribution.items or []
     )
-    if used_as_avatar or still_used or in_capture or in_contribution:
+    if used_as_avatar or used_in_conv or used_in_msg or still_used or in_capture or in_contribution:
         return
     doomed.append(media.storage_key)
     db.delete(media)

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { BloomMark, IconBell, IconCamera, IconFlower, IconInbox, IconJournal, IconLive, IconTogether, IconUser } from "./components/Icons";
+import { BloomMark, IconBell, IconCamera, IconChat, IconFlower, IconInbox, IconJournal, IconLive, IconTogether, IconUser } from "./components/Icons";
 import { Loading, Modal, Toasts } from "./components/ui";
 import { errorMessage } from "./lib/api";
 import { Link, RouterProvider, matchPath, useRouter } from "./lib/router";
@@ -8,6 +8,7 @@ import { AccountPage } from "./pages/Account";
 import { ActivityPage } from "./pages/Activity";
 import { AuthPage } from "./pages/Auth";
 import { CamPage } from "./pages/Cam";
+import { ChatPage } from "./pages/Chat";
 import { EntryPage } from "./pages/Entry";
 import { FriendsPage } from "./pages/Friends";
 import { HomePage } from "./pages/Home";
@@ -40,6 +41,8 @@ const ROUTES: Array<{ path: string; render: (params: Record<string, string>) => 
   { path: "/journal", render: () => <JournalPage /> },
   { path: "/journal/:id", render: (p) => <EntryPage id={p.id} /> },
   { path: "/friends", render: () => <FriendsPage /> },
+  { path: "/chat", render: () => <ChatPage /> },
+  { path: "/chat/:id", render: (p) => <ChatPage conversationId={p.id} /> },
   { path: "/activity", render: () => <ActivityPage /> },
   { path: "/notifications", render: () => <NotificationsPage /> },
   { path: "/together", render: () => <TogetherPage /> },
@@ -164,7 +167,7 @@ function InboxDialog({ onClose }: { onClose: () => void }) {
 
 function Shell() {
   const { path } = useRouter();
-  const { user, inbox, unreadNotifications, serverOnline, deviceMode, ready } = useSession();
+  const { user, inbox, unreadNotifications, unreadChat, serverOnline, deviceMode, ready } = useSession();
   const [inboxOpen, setInboxOpen] = useState(false);
   const isActive = (to: string) => path === to || path.startsWith(`${to}/`);
 
@@ -204,6 +207,10 @@ function Shell() {
           )}
           {user && (
             <>
+              <Link to="/chat" className="btn icon quiet inbox-button" aria-label={`Chat, ${unreadChat} unread`}>
+                <IconChat />
+                {unreadChat > 0 && <span className="badge">{unreadChat}</span>}
+              </Link>
               <Link to="/notifications" className="btn icon quiet inbox-button" aria-label={`Notifications, ${unreadNotifications} unread`}>
                 <IconBell />
                 {unreadNotifications > 0 && <span className="badge">{unreadNotifications}</span>}

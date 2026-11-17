@@ -22,6 +22,7 @@ from . import realtime
 from .config import BACKEND_DIR, settings
 from .routers import (
     auth,
+    chat,
     designs,
     follows,
     friends,
@@ -111,6 +112,7 @@ for module in (
     reactions,
     notifications,
     social,
+    chat,
     projects,
     live,
     inbox,

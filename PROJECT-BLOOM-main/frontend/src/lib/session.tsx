@@ -1,6 +1,6 @@
 /**
  * App-wide session: signed-in user, server status, storage backend,
- * inbox, real-time notifications over /api/ws, and toasts.
+ * inbox, real-time notifications + chat events over /api/ws, and toasts.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { defaultRecipe, normalizeRecipe, type FlowerRecipe } from "../flower/recipe";
@@ -20,6 +20,9 @@ interface Toast {
   tone: "info" | "error";
 }
 
+export type WsEvent = Record<string, unknown> & { type?: string };
+type WsListener = (event: WsEvent) => void;
+
 interface SessionValue {
   ready: boolean;
   user: User | null;
@@ -31,7 +34,15 @@ interface SessionValue {
   notifications: AppNotification[];
   unreadNotifications: number;
   refreshNotifications: () => void;
-  setNotificationsState: (updater: (list: AppNotification[]) => AppNotification[], unreadDeltaOrValue?: number, exactUnread?: boolean) => void;
+  setNotificationsState: (
+    updater: (list: AppNotification[]) => AppNotification[],
+    unreadDeltaOrValue?: number,
+    exactUnread?: boolean,
+  ) => void;
+  unreadChat: number;
+  refreshUnreadChat: () => void;
+  sendWs: (msg: Record<string, unknown>) => void;
+  subscribeWs: (listener: WsListener) => () => void;
   signIn: (username: string, password: string) => Promise<void>;
   signUp: (username: string, displayName: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -95,11 +106,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [unreadChat, setUnreadChat] = useState(0);
   const [recipe, setRecipeState] = useState<FlowerRecipe>(loadRecipe);
   const [hasFlower, setHasFlower] = useState(() => readStorage(GROWN_KEY) === "1");
   const [growCount, setGrowCount] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
+  const wsRef = useRef<WebSocket | null>(null);
+  const wsListeners = useRef<Set<WsListener>>(new Set());
 
   const toast = useCallback((text: string, tone: "info" | "error" = "info") => {
     const id = ++toastId.current;
@@ -151,6 +165,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       .catch(() => undefined);
   }, [user]);
 
+  const refreshUnreadChat = useCallback(() => {
+    if (!user) return;
+    api<{ unread_count: number }>("/api/chat/unread-total")
+      .then((data) => setUnreadChat(data.unread_count))
+      .catch(() => undefined);
+  }, [user]);
+
   const setNotificationsState = useCallback(
     (updater: (list: AppNotification[]) => AppNotification[], unreadDeltaOrValue?: number, exactUnread = false) => {
       setNotifications(updater);
@@ -162,51 +183,74 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const sendWs = useCallback((msg: Record<string, unknown>) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(msg));
+    }
+  }, []);
+
+  const subscribeWs = useCallback((listener: WsListener) => {
+    wsListeners.current.add(listener);
+    return () => {
+      wsListeners.current.delete(listener);
+    };
+  }, []);
+
   useEffect(() => {
     if (!user) {
       setInbox(null);
       setNotifications([]);
       setUnreadNotifications(0);
+      setUnreadChat(0);
       return;
     }
     refreshInbox();
     refreshNotifications();
+    refreshUnreadChat();
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") {
         refreshInbox();
         refreshNotifications();
+        refreshUnreadChat();
       }
     }, 20000);
 
     let closed = false;
-    let ws: WebSocket | null = null;
     let pingTimer = 0;
     let retryTimer = 0;
     let retries = 0;
 
     const connectWs = () => {
       if (closed) return;
+      let ws: WebSocket;
       try {
         ws = new WebSocket(userWsUrl());
       } catch {
         return;
       }
+      wsRef.current = ws;
       ws.onopen = () => {
         retries = 0;
         window.clearInterval(pingTimer);
         pingTimer = window.setInterval(() => {
-          if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ping" }));
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ping" }));
         }, 25000);
       };
       ws.onmessage = (event) => {
         try {
-          const msg = JSON.parse(String(event.data)) as { type?: string; notification?: AppNotification };
+          const msg = JSON.parse(String(event.data)) as WsEvent;
+          wsListeners.current.forEach((fn) => fn(msg));
           if (msg.type === "notification" && msg.notification) {
-            const incoming = msg.notification;
+            const incoming = msg.notification as AppNotification;
             setNotifications((list) => [incoming, ...list.filter((n) => n.id !== incoming.id)]);
             setUnreadNotifications((n) => n + 1);
             refreshInbox();
-            toast(incoming.title);
+            if (!window.location.pathname.startsWith("/chat")) {
+              toast(incoming.title);
+            }
+          } else if (msg.type === "chat.unread") {
+            refreshUnreadChat();
           }
         } catch {
           /* ignore malformed frames */
@@ -214,6 +258,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       };
       ws.onclose = (ev) => {
         window.clearInterval(pingTimer);
+        if (wsRef.current === ws) wsRef.current = null;
         if (closed || ev.code === 4003) return;
         const delay = Math.min(30000, 1500 * 2 ** retries++);
         retryTimer = window.setTimeout(connectWs, delay);
@@ -227,9 +272,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       window.clearInterval(timer);
       window.clearInterval(pingTimer);
       window.clearTimeout(retryTimer);
-      ws?.close(1000, "unmount");
+      wsRef.current?.close(1000, "unmount");
+      wsRef.current = null;
     };
-  }, [user, refreshInbox, refreshNotifications, toast]);
+  }, [user, refreshInbox, refreshNotifications, refreshUnreadChat, toast]);
 
   const signIn = useCallback(async (username: string, password: string) => {
     const me = await api<User>("/api/auth/login", { body: { username, password } });
@@ -289,6 +335,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       unreadNotifications,
       refreshNotifications,
       setNotificationsState,
+      unreadChat,
+      refreshUnreadChat,
+      sendWs,
+      subscribeWs,
       signIn,
       signUp,
       signOut,
@@ -315,6 +365,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       unreadNotifications,
       refreshNotifications,
       setNotificationsState,
+      unreadChat,
+      refreshUnreadChat,
+      sendWs,
+      subscribeWs,
       signIn,
       signUp,
       signOut,
