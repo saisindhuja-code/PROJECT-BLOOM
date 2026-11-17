@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
@@ -35,6 +36,7 @@ class User(Base):
     bio: Mapped[str] = mapped_column(String(500), default="")
     avatar_media_id: Mapped[int | None] = mapped_column(ForeignKey("media.id", ondelete="SET NULL"), nullable=True)
     privacy_settings: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    notification_preferences: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     password_hash: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -46,14 +48,12 @@ class FlowerDesign(Base):
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(80))
     recipe: Mapped[dict[str, Any]] = mapped_column(JSON)
-    visibility: Mapped[str] = mapped_column(String(12), default="private")  # private | friends | public
+    visibility: Mapped[str] = mapped_column(String(12), default="private")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class Media(Base):
-    """An uploaded image or voice note. Private to its owner unless shared."""
-
     __tablename__ = "media"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -69,8 +69,6 @@ class Media(Base):
 
 
 class MediaBlob(Base):
-    """Media bytes, when BLOOM_STORAGE=database (hosts without a lasting disk)."""
-
     __tablename__ = "media_blobs"
 
     key: Mapped[str] = mapped_column(String(255), primary_key=True)
@@ -84,7 +82,7 @@ class Album(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(60))
-    visibility: Mapped[str] = mapped_column(String(12), default="private")  # private | friends | public
+    visibility: Mapped[str] = mapped_column(String(12), default="private")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -94,7 +92,7 @@ class JournalEntry(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    entry_type: Mapped[str] = mapped_column(String(20))  # flower | photo | composition
+    entry_type: Mapped[str] = mapped_column(String(20))
     title: Mapped[str] = mapped_column(String(120), default="")
     caption: Mapped[str] = mapped_column(String(500), default="")
     notes: Mapped[str] = mapped_column(Text, default="")
@@ -105,7 +103,7 @@ class JournalEntry(Base):
     edit_state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
     participants: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
-    visibility: Mapped[str] = mapped_column(String(12), default="private")  # private | friends | public
+    visibility: Mapped[str] = mapped_column(String(12), default="private")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -120,15 +118,13 @@ class AlbumEntry(Base):
 
 
 class Friendship(Base):
-    """A friend request; status becomes 'accepted' when the other person agrees."""
-
     __tablename__ = "friendships"
     __table_args__ = (UniqueConstraint("requester_id", "addressee_id", name="uq_friend_pair"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     requester_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     addressee_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    status: Mapped[str] = mapped_column(String(12), default="pending")  # pending | accepted
+    status: Mapped[str] = mapped_column(String(12), default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -137,14 +133,12 @@ class Friendship(Base):
 
 
 class Project(Base):
-    """A private shared creation (Bloom Together)."""
-
     __tablename__ = "projects"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(80))
-    mode: Mapped[str] = mapped_column(String(12))  # twin | two | moment
+    mode: Mapped[str] = mapped_column(String(12))
     shared_recipe: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     layout: Mapped[str] = mapped_column(String(24), default="side-by-side")
     theme_state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
@@ -167,8 +161,8 @@ class ProjectMember(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    role: Mapped[str] = mapped_column(String(10))  # owner | member
-    status: Mapped[str] = mapped_column(String(10))  # invited | active
+    role: Mapped[str] = mapped_column(String(10))
+    status: Mapped[str] = mapped_column(String(10))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     project: Mapped[Project] = relationship(back_populates="members")
@@ -176,8 +170,6 @@ class ProjectMember(Base):
 
 
 class Contribution(Base):
-    """One participant's photos and flowers in a shared project, with their own crop/position settings."""
-
     __tablename__ = "contributions"
     __table_args__ = (UniqueConstraint("project_id", "user_id", name="uq_contribution_member"),)
 
@@ -191,14 +183,12 @@ class Contribution(Base):
 
 
 class LiveRoom(Base):
-    """A private Live Bloom room between two friends."""
-
     __tablename__ = "live_rooms"
 
     id: Mapped[str] = mapped_column(String(24), primary_key=True)
     host_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     guest_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    status: Mapped[str] = mapped_column(String(10), default="open")  # open | closed
+    status: Mapped[str] = mapped_column(String(10), default="open")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -207,8 +197,6 @@ class LiveRoom(Base):
 
 
 class LiveCapture(Base):
-    """A photo a participant chose to share inside a live room."""
-
     __tablename__ = "live_captures"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -218,3 +206,56 @@ class LiveCapture(Base):
     round_id: Mapped[str] = mapped_column(String(24))
     placement: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Follow(Base):
+    """One-way following relationship."""
+
+    __tablename__ = "follows"
+    __table_args__ = (UniqueConstraint("follower_id", "following_id", name="uq_follow_pair"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    follower_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    following_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    follower: Mapped[User] = relationship(foreign_keys=[follower_id], lazy="joined")
+    following: Mapped[User] = relationship(foreign_keys=[following_id], lazy="joined")
+
+
+class Reaction(Base):
+    """One reaction per user on a shared flower design or journal entry."""
+
+    __tablename__ = "reactions"
+    __table_args__ = (
+        UniqueConstraint("user_id", "target_type", "target_id", name="uq_reaction_user_target"),
+        Index("ix_reactions_target", "target_type", "target_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    target_type: Mapped[str] = mapped_column(String(16))  # design | entry
+    target_id: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String(16))  # heart | bloom | sparkle | leaf
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Notification(Base):
+    """Persistent real-time notification."""
+
+    __tablename__ = "notifications"
+    __table_args__ = (Index("ix_notifications_user_read_created", "user_id", "is_read", "created_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(24))
+    title: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(String(300), default="")
+    link: Mapped[str] = mapped_column(String(200), default="")
+    target_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    target_id: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    actor: Mapped[User | None] = relationship(foreign_keys=[actor_id], lazy="joined")

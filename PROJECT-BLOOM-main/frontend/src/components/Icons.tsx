@@ -193,6 +193,32 @@ export const IconSprig = (p: IconProps) => (
   </svg>
 );
 
+export const IconBell = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M18 15.5V10a6 6 0 1 0-12 0v5.5L4 18h16l-2-2.5Z" />
+    <path d="M9.5 18a2.5 2.5 0 0 0 5 0" />
+  </Svg>
+);
+
+export const IconHeart = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 20s-7-4.5-8.5-9.2C2.3 7.1 5 4.5 8 4.5c1.8 0 3.2.9 4 2.2.8-1.3 2.2-2.2 4-2.2 3 0 5.7 2.6 4.5 6.3C19 15.5 12 20 12 20Z" />
+  </Svg>
+);
+
+export const IconSparkle = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="m12 3 1.9 6.1L20 11l-6.1 1.9L12 19l-1.9-6.1L4 11l6.1-1.9L12 3Z" />
+  </Svg>
+);
+
+export const IconLeaf = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M5 19C5 10 10 5 19 5c0 9-5 14-14 14Z" />
+    <path d="M5 19 14 10" />
+  </Svg>
+);
+
 export function BloomMark(p: IconProps) {
   return (
     <svg viewBox="0 0 40 40" aria-hidden="true" {...p}>

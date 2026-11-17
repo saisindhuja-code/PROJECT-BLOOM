@@ -1,10 +1,10 @@
 /**
- * App-wide session: who is signed in, whether the server is reachable, which
- * store (account or this device) the journal uses, the inbox, and toasts.
+ * App-wide session: signed-in user, server status, storage backend,
+ * inbox, real-time notifications over /api/ws, and toasts.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { defaultRecipe, normalizeRecipe, type FlowerRecipe } from "../flower/recipe";
-import { ApiError, api, type User } from "./api";
+import { API_BASE, ApiError, api, type AppNotification, type User } from "./api";
 import { localStore, serverStore, type BloomStore } from "./store";
 
 export interface Inbox {
@@ -28,6 +28,10 @@ interface SessionValue {
   store: BloomStore;
   inbox: Inbox | null;
   refreshInbox: () => void;
+  notifications: AppNotification[];
+  unreadNotifications: number;
+  refreshNotifications: () => void;
+  setNotificationsState: (updater: (list: AppNotification[]) => AppNotification[], unreadDeltaOrValue?: number, exactUnread?: boolean) => void;
   signIn: (username: string, password: string) => Promise<void>;
   signUp: (username: string, displayName: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -35,11 +39,8 @@ interface SessionValue {
   setUser: (user: User) => void;
   recipe: FlowerRecipe;
   setRecipe: (recipe: FlowerRecipe) => void;
-  /** True once you've grown a flower (nothing is made automatically). */
   hasFlower: boolean;
-  /** Grows a flower on purpose: sets the recipe and marks it as made. */
   growFlower: (recipe: FlowerRecipe) => void;
-  /** Bumps each time a flower is grown, so previews can play the growing animation. */
   growCount: number;
   toast: (text: string, tone?: "info" | "error") => void;
   toasts: Toast[];
@@ -65,7 +66,7 @@ function writeStorage(key: string, value: string | null): void {
     if (value === null) localStorage.removeItem(key);
     else localStorage.setItem(key, value);
   } catch {
-    /* storage can be unavailable (private mode); the app still works */
+    /* storage unavailable */
   }
 }
 
@@ -79,12 +80,21 @@ function loadRecipe(): FlowerRecipe {
   }
 }
 
+function userWsUrl(): string {
+  const base = API_BASE || window.location.origin;
+  const url = new URL("/api/ws", base);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [user, setUserState] = useState<User | null>(null);
   const [serverOnline, setServerOnline] = useState(true);
   const [deviceChoice, setDeviceChoice] = useState(() => readStorage(DEVICE_KEY) === "1");
   const [inbox, setInbox] = useState<Inbox | null>(null);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [recipe, setRecipeState] = useState<FlowerRecipe>(loadRecipe);
   const [hasFlower, setHasFlower] = useState(() => readStorage(GROWN_KEY) === "1");
   const [growCount, setGrowCount] = useState(0);
@@ -131,17 +141,95 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       });
   }, [user]);
 
+  const refreshNotifications = useCallback(() => {
+    if (!user) return;
+    api<{ items: AppNotification[]; unread_count: number }>("/api/notifications?limit=40")
+      .then((data) => {
+        setNotifications(data.items);
+        setUnreadNotifications(data.unread_count);
+      })
+      .catch(() => undefined);
+  }, [user]);
+
+  const setNotificationsState = useCallback(
+    (updater: (list: AppNotification[]) => AppNotification[], unreadDeltaOrValue?: number, exactUnread = false) => {
+      setNotifications(updater);
+      if (unreadDeltaOrValue !== undefined) {
+        if (exactUnread) setUnreadNotifications(Math.max(0, unreadDeltaOrValue));
+        else setUnreadNotifications((n) => Math.max(0, n + unreadDeltaOrValue));
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!user) {
       setInbox(null);
+      setNotifications([]);
+      setUnreadNotifications(0);
       return;
     }
     refreshInbox();
+    refreshNotifications();
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") refreshInbox();
-    }, 15000);
-    return () => window.clearInterval(timer);
-  }, [user, refreshInbox]);
+      if (document.visibilityState === "visible") {
+        refreshInbox();
+        refreshNotifications();
+      }
+    }, 20000);
+
+    let closed = false;
+    let ws: WebSocket | null = null;
+    let pingTimer = 0;
+    let retryTimer = 0;
+    let retries = 0;
+
+    const connectWs = () => {
+      if (closed) return;
+      try {
+        ws = new WebSocket(userWsUrl());
+      } catch {
+        return;
+      }
+      ws.onopen = () => {
+        retries = 0;
+        window.clearInterval(pingTimer);
+        pingTimer = window.setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ping" }));
+        }, 25000);
+      };
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(String(event.data)) as { type?: string; notification?: AppNotification };
+          if (msg.type === "notification" && msg.notification) {
+            const incoming = msg.notification;
+            setNotifications((list) => [incoming, ...list.filter((n) => n.id !== incoming.id)]);
+            setUnreadNotifications((n) => n + 1);
+            refreshInbox();
+            toast(incoming.title);
+          }
+        } catch {
+          /* ignore malformed frames */
+        }
+      };
+      ws.onclose = (ev) => {
+        window.clearInterval(pingTimer);
+        if (closed || ev.code === 4003) return;
+        const delay = Math.min(30000, 1500 * 2 ** retries++);
+        retryTimer = window.setTimeout(connectWs, delay);
+      };
+    };
+
+    connectWs();
+
+    return () => {
+      closed = true;
+      window.clearInterval(timer);
+      window.clearInterval(pingTimer);
+      window.clearTimeout(retryTimer);
+      ws?.close(1000, "unmount");
+    };
+  }, [user, refreshInbox, refreshNotifications, toast]);
 
   const signIn = useCallback(async (username: string, password: string) => {
     const me = await api<User>("/api/auth/login", { body: { username, password } });
@@ -197,6 +285,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       store,
       inbox,
       refreshInbox,
+      notifications,
+      unreadNotifications,
+      refreshNotifications,
+      setNotificationsState,
       signIn,
       signUp,
       signOut,
@@ -211,7 +303,31 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       toasts,
       dismissToast,
     }),
-    [ready, user, serverOnline, deviceMode, store, inbox, refreshInbox, signIn, signUp, signOut, useThisDevice, recipe, setRecipe, hasFlower, growFlower, growCount, toast, toasts, dismissToast],
+    [
+      ready,
+      user,
+      serverOnline,
+      deviceMode,
+      store,
+      inbox,
+      refreshInbox,
+      notifications,
+      unreadNotifications,
+      refreshNotifications,
+      setNotificationsState,
+      signIn,
+      signUp,
+      signOut,
+      useThisDevice,
+      recipe,
+      setRecipe,
+      hasFlower,
+      growFlower,
+      growCount,
+      toast,
+      toasts,
+      dismissToast,
+    ],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

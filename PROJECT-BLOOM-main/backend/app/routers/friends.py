@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from ..access import can_view_profile, friendship_between, not_found, privacy_for, relation_between
 from ..db import get_db
 from ..models import Friendship, User
+from ..notifications import emit_notification, push_pending
 from ..schemas import FriendRequestIn
 from ..security import current_user, normalize_bloom_id
 
@@ -78,13 +79,31 @@ def send_request(body: FriendRequestIn, user: User = Depends(current_user), db: 
         if link.requester_id == other.id:
             link.status = "accepted"
             link.responded_at = datetime.now(timezone.utc)
+            ev = emit_notification(
+                db, other, user,
+                kind="friend_accepted",
+                title=f"{user.display_name} accepted your friend request",
+                link=f"/profile/{user.bloom_id}",
+                target_type="user",
+                target_id=user.bloom_id,
+            )
             db.commit()
+            push_pending([ev])
             return {"status": "accepted", **public(other)}
         raise HTTPException(status.HTTP_409_CONFLICT, "Your request is already waiting for them.")
     if not privacy_for(other).allow_friend_requests:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This person isn't accepting friend requests right now.")
     db.add(Friendship(requester_id=user.id, addressee_id=other.id))
+    ev = emit_notification(
+        db, other, user,
+        kind="friend_request",
+        title=f"{user.display_name} sent you a friend request",
+        link="/friends",
+        target_type="user",
+        target_id=user.bloom_id,
+    )
     db.commit()
+    push_pending([ev])
     return {"status": "pending", **public(other)}
 
 
@@ -100,7 +119,16 @@ def accept(request_id: int, user: User = Depends(current_user), db: Session = De
     link = _incoming(db, request_id, user)
     link.status = "accepted"
     link.responded_at = datetime.now(timezone.utc)
+    ev = emit_notification(
+        db, link.requester, user,
+        kind="friend_accepted",
+        title=f"{user.display_name} accepted your friend request",
+        link=f"/profile/{user.bloom_id}",
+        target_type="user",
+        target_id=user.bloom_id,
+    )
     db.commit()
+    push_pending([ev])
     return {"status": "accepted", **public(link.requester)}
 
 

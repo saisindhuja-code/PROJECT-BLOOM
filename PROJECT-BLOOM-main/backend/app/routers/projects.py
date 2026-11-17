@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from ..access import are_friends, not_found, release_media, require_active_member, require_owned_media
 from ..db import get_db
 from ..models import Contribution, Project, ProjectMember, User, utcnow
+from ..notifications import emit_notification, push_pending
 from ..schemas import ContributionIn, FriendRequestIn, ProjectIn, ProjectPatch
 from ..security import current_user
 from ..storage import storage
@@ -92,7 +93,7 @@ def _owned_project(db: Session, project_id: int, user: User) -> Project:
     return project
 
 
-def _invite(db: Session, project: Project, inviter: User, raw_bloom_id: str) -> None:
+def _invite(db: Session, project: Project, inviter: User, raw_bloom_id: str) -> User:
     friend = find_by_bloom_id(db, raw_bloom_id)
     if friend is None or not are_friends(db, inviter.id, friend.id):
         raise HTTPException(422, "You can only invite friends. Add them by Bloom ID first.")
@@ -101,6 +102,7 @@ def _invite(db: Session, project: Project, inviter: User, raw_bloom_id: str) -> 
     if len(project.members) >= MAX_MEMBERS:
         raise HTTPException(status.HTTP_409_CONFLICT, "A Bloom Together project is for two people.")
     project.members.append(ProjectMember(user_id=friend.id, role="member", status="invited"))
+    return friend
 
 
 def _release_ids(db: Session, media_ids: set[int]) -> None:
@@ -138,9 +140,21 @@ def create_project(body: ProjectIn, user: User = Depends(current_user), db: Sess
     project.members.append(ProjectMember(user_id=user.id, role="owner", status="active"))
     db.add(project)
     db.flush()
+    invited_user = None
     if body.invite_bloom_id:
-        _invite(db, project, user, body.invite_bloom_id)
+        invited_user = _invite(db, project, user, body.invite_bloom_id)
+    ev = None
+    if invited_user is not None:
+        ev = emit_notification(
+            db, invited_user, user,
+            kind="project_invite",
+            title=f"{user.display_name} invited you to “{project.title}”",
+            link=f"/together/{project.id}",
+            target_type="project",
+            target_id=project.id,
+        )
     db.commit()
+    push_pending([ev])
     db.refresh(project)
     return project_out(project, user)
 
@@ -176,8 +190,17 @@ def update_project(
 @router.post("/{project_id}/invite")
 def invite(project_id: int, body: FriendRequestIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     project = _owned_project(db, project_id, user)
-    _invite(db, project, user, body.bloom_id)
+    invited_user = _invite(db, project, user, body.bloom_id)
+    ev = emit_notification(
+        db, invited_user, user,
+        kind="project_invite",
+        title=f"{user.display_name} invited you to “{project.title}”",
+        link=f"/together/{project.id}",
+        target_type="project",
+        target_id=project.id,
+    )
     db.commit()
+    push_pending([ev])
     db.refresh(project)
     return project_out(project, user)
 
@@ -189,7 +212,16 @@ def accept_invite(project_id: int, user: User = Depends(current_user), db: Sessi
     if member is None or member.status != "invited":
         raise not_found("That invitation")
     member.status = "active"
+    ev = emit_notification(
+        db, project.owner, user,
+        kind="project_activity",
+        title=f"{user.display_name} joined “{project.title}”",
+        link=f"/together/{project.id}",
+        target_type="project",
+        target_id=project.id,
+    )
     db.commit()
+    push_pending([ev])
     db.refresh(project)
     return project_out(project, user)
 
@@ -298,10 +330,23 @@ def save_contribution(
     new_ids = {item["media_id"] for item in items if item.get("media_id")}
     project.updated_at = utcnow()
     contribution.updated_at = utcnow()
+    events = [
+        emit_notification(
+            db, m.user, user,
+            kind="project_activity",
+            title=f"{user.display_name} updated their part in “{project.title}”",
+            link=f"/together/{project.id}",
+            target_type="project",
+            target_id=project.id,
+        )
+        for m in project.members
+        if m.status == "active" and m.user_id != user.id
+    ]
     removed_ids = old_ids - new_ids
     if removed_ids:
         _release_ids(db, removed_ids)
     else:
         db.commit()
+    push_pending(events)
     db.refresh(project)
     return project_out(project, user)

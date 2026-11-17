@@ -2123,3 +2123,75 @@ input[type="range"]::-moz-range-thumb {
   padding-top: 12px;
   border-top: 1px dashed var(--line);
 }
+
+.feed-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 24px;
+  align-items: start;
+}
+
+.feed-media-btn {
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: block;
+  width: 100%;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.feed-media-btn img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.reaction-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.reaction-chip {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.notif-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+}
+
+.notif-row.unread {
+  border-color: var(--rose);
+  background: rgba(231, 163, 181, 0.06);
+}
+
+.notif-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--rose);
+  flex: none;
+}
+
+.notif-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}

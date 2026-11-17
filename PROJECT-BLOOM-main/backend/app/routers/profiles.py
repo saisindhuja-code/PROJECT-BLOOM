@@ -17,7 +17,8 @@ from ..access import (
     visibility_allows,
 )
 from ..db import get_db
-from ..models import Album, FlowerDesign, Friendship, JournalEntry, User
+from ..models import Album, FlowerDesign, Follow, Friendship, JournalEntry, User
+from .reactions import reaction_summary
 from ..security import current_user, normalize_bloom_id
 from .friends import find_by_bloom_id
 
@@ -36,7 +37,7 @@ def _friend_count(db: Session, user_id: int) -> int:
     )
 
 
-def _shared_entry_out(entry: JournalEntry) -> dict[str, Any]:
+def _shared_entry_out(entry: JournalEntry, reactions: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": entry.id,
         "entry_type": entry.entry_type,
@@ -48,6 +49,7 @@ def _shared_entry_out(entry: JournalEntry) -> dict[str, Any]:
         "photo_url": f"/api/media/{entry.photo_media_id}" if entry.photo_media_id else None,
         "visibility": entry.visibility,
         "album_ids": [a.id for a in entry.albums],
+        "reactions": reactions,
     }
 
 
@@ -110,12 +112,24 @@ def get_profile(
     link = friendship_between(db, user.id, target.id) if target.id != user.id else None
     priv = privacy_for(target)
     visible = can_view_profile(db, target, user)
+    is_following = (
+        db.scalar(select(Follow.id).where(Follow.follower_id == user.id, Follow.following_id == target.id)) is not None
+        if target.id != user.id
+        else False
+    )
+    follows_you = (
+        db.scalar(select(Follow.id).where(Follow.follower_id == target.id, Follow.following_id == user.id)) is not None
+        if target.id != user.id
+        else False
+    )
 
     base: dict[str, Any] = {
         "bloom_id": target.bloom_id,
         "display_name": target.display_name,
         "is_you": target.id == user.id,
         "relation": relation,
+        "is_following": is_following,
+        "follows_you": follows_you,
         "request_id": link.id if link and link.status == "pending" else None,
         "can_view_profile": visible,
         "allow_friend_requests": priv.allow_friend_requests,
@@ -128,11 +142,21 @@ def get_profile(
             "bio": "",
             "avatar_url": None,
             "friend_count": None,
+            "follower_count": None,
+            "following_count": None,
             "flowers": [],
             "albums": [],
             "entries": [],
         }
 
+    visible_designs = [
+        d
+        for d in db.scalars(
+            select(FlowerDesign).where(FlowerDesign.owner_id == target.id).order_by(FlowerDesign.updated_at.desc())
+        ).all()
+        if visibility_allows(db, target.id, d.visibility, user)
+    ]
+    d_reacts = reaction_summary(db, "design", [d.id for d in visible_designs], user.id)
     flowers = [
         {
             "id": d.id,
@@ -140,11 +164,9 @@ def get_profile(
             "recipe": d.recipe,
             "visibility": d.visibility,
             "updated_at": d.updated_at,
+            "reactions": d_reacts.get(d.id, {"counts": {}, "total": 0, "my_reaction": None}),
         }
-        for d in db.scalars(
-            select(FlowerDesign).where(FlowerDesign.owner_id == target.id).order_by(FlowerDesign.updated_at.desc())
-        ).all()
-        if visibility_allows(db, target.id, d.visibility, user)
+        for d in visible_designs
     ]
 
     all_entries = [
@@ -156,6 +178,9 @@ def get_profile(
         ).all()
         if visibility_allows(db, target.id, e.visibility, user)
     ]
+    e_reacts = reaction_summary(db, "entry", [e.id for e in all_entries[:40]], user.id)
+    follower_count = int(db.scalar(select(func.count(Follow.id)).where(Follow.following_id == target.id)) or 0)
+    following_count = int(db.scalar(select(func.count(Follow.id)).where(Follow.follower_id == target.id)) or 0)
 
     albums = []
     for a in db.scalars(select(Album).where(Album.owner_id == target.id).order_by(Album.name)).all():
@@ -176,7 +201,9 @@ def get_profile(
         "bio": target.bio or "",
         "avatar_url": f"/api/media/{target.avatar_media_id}" if target.avatar_media_id else None,
         "friend_count": _friend_count(db, target.id),
+        "follower_count": follower_count,
+        "following_count": following_count,
         "flowers": flowers,
         "albums": albums,
-        "entries": [_shared_entry_out(e) for e in all_entries[:40]],
+        "entries": [_shared_entry_out(e, e_reacts.get(e.id, {"counts": {}, "total": 0, "my_reaction": None})) for e in all_entries[:40]],
     }

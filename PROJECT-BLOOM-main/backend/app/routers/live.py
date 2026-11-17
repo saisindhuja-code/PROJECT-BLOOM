@@ -26,6 +26,7 @@ from ..access import are_friends, not_found, release_media
 from ..config import settings
 from ..db import SessionLocal, get_db
 from ..models import LiveCapture, LiveRoom, Media, User
+from ..notifications import emit_notification, push_pending
 from ..realtime import MAX_WS_MESSAGE_BYTES, ws_origin_allowed
 from ..schemas import LiveRoomIn
 from ..security import current_user, user_from_token
@@ -102,7 +103,16 @@ def create_room(body: LiveRoomIn, user: User = Depends(current_user), db: Sessio
         return room_out(existing, user)
     room = LiveRoom(id=secrets.token_urlsafe(9), host_id=user.id, guest_id=friend.id)
     db.add(room)
+    ev = emit_notification(
+        db, friend, user,
+        kind="live_invite",
+        title=f"{user.display_name} opened a Live Bloom room with you",
+        link=f"/live/{room.id}",
+        target_type="room",
+        target_id=room.id,
+    )
     db.commit()
+    push_pending([ev])
     return room_out(room, user)
 
 

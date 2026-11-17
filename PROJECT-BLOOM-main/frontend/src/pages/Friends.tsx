@@ -14,10 +14,22 @@ interface FriendItem {
   since: string;
 }
 
+interface FollowItem {
+  bloom_id: string;
+  display_name: string;
+  avatar_url?: string | null;
+  since: string;
+}
+
 interface FriendsData {
   friends: FriendItem[];
   incoming: FriendItem[];
   outgoing: FriendItem[];
+}
+
+interface FollowsData {
+  following: FollowItem[];
+  followers: FollowItem[];
 }
 
 interface SearchResult {
@@ -55,7 +67,17 @@ export function FriendsPage() {
   const [queryText, setQueryText] = useState("");
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [lookupError, setLookupError] = useState("");
+  const [follows, setFollows] = useState<FollowsData | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const loadFollows = useCallback(() => {
+    if (!user) return Promise.resolve();
+    return api<FollowsData>("/api/follows").then(setFollows).catch(() => undefined);
+  }, [user]);
+
+  useEffect(() => {
+    void loadFollows();
+  }, [loadFollows]);
 
   if (!user) {
     return (
@@ -71,6 +93,7 @@ export function FriendsPage() {
       await task();
       if (message) toast(message);
       await reload();
+      await loadFollows();
     } catch (e) {
       toast(errorMessage(e), "error");
     } finally {
@@ -107,9 +130,10 @@ export function FriendsPage() {
             The people you <span className="flourish">grow with</span>
           </h1>
         </div>
-        <Link to={`/profile/${user.bloom_id}`} className="btn small">
-          View my profile
-        </Link>
+        <div className="btn-row">
+          <Link to="/activity" className="btn small">Shared feed</Link>
+          <Link to={`/profile/${user.bloom_id}`} className="btn small">View my profile</Link>
+        </div>
       </div>
 
       <div className="columns">
@@ -261,6 +285,47 @@ export function FriendsPage() {
                   ))
                 )}
               </section>
+              {follows && (follows.following.length > 0 || follows.followers.length > 0) && (
+                <section className="panel stack">
+                  <h3>Following &amp; followers</h3>
+                  {follows.following.length > 0 && (
+                    <div>
+                      <p className="eyebrow" style={{ marginBottom: 6 }}>Following ({follows.following.length})</p>
+                      {follows.following.map((f) => (
+                        <div key={`fg-${f.bloom_id}`} className="person">
+                          <Avatar name={f.display_name} src={f.avatar_url} />
+                          <div className="who">
+                            <Link to={`/profile/${f.bloom_id}`} style={{ textDecoration: "none", color: "inherit" }}>
+                              <strong>{f.display_name}</strong>
+                            </Link>
+                            <span className="bloom-id">{f.bloom_id}</span>
+                          </div>
+                          <button type="button" className="btn small quiet" disabled={busy} onClick={() => void act(() => api(`/api/follows/${encodeURIComponent(f.bloom_id)}`, { method: "DELETE" }), "Unfollowed.")}>
+                            Unfollow
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {follows.followers.length > 0 && (
+                    <div>
+                      <p className="eyebrow" style={{ marginBottom: 6 }}>Followers ({follows.followers.length})</p>
+                      {follows.followers.map((f) => (
+                        <div key={`fr-${f.bloom_id}`} className="person">
+                          <Avatar name={f.display_name} src={f.avatar_url} />
+                          <div className="who">
+                            <Link to={`/profile/${f.bloom_id}`} style={{ textDecoration: "none", color: "inherit" }}>
+                              <strong>{f.display_name}</strong>
+                            </Link>
+                            <span className="bloom-id">{f.bloom_id}</span>
+                          </div>
+                          <Link to={`/profile/${f.bloom_id}`} className="btn small quiet">Profile</Link>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
               {data.outgoing.length > 0 && (
                 <section className="panel">
                   <h3>Requests you sent</h3>

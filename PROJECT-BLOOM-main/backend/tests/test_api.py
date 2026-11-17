@@ -498,5 +498,60 @@ class BloomApiTest(unittest.TestCase):
         self.assertEqual(b.get(p_pub["url"]).status_code, 404)
 
 
+    def test_07_phase3_follows_reactions_feed_and_notifications(self) -> None:
+        a, me_a = self.client("fiona", "Fiona")
+        b, me_b = self.client("george", "George")
+        c, me_c = self.client("hana", "Hana")
+
+        a.patch("/api/auth/me", json={"privacy_settings": {"profile_visibility": "public", "searchable": True, "show_online_status": True, "allow_friend_requests": True}})
+        c.patch("/api/auth/me", json={"privacy_settings": {"profile_visibility": "private", "searchable": False, "show_online_status": True, "allow_friend_requests": True}})
+
+        self.assertEqual(b.post(f"/api/follows/{me_c['bloom_id']}").status_code, 404)
+        self.assertEqual(b.post(f"/api/follows/{me_b['bloom_id']}").status_code, 422)
+        self.assertEqual(b.post(f"/api/follows/{me_a['bloom_id']}").status_code, 201)
+        self.assertEqual(len(b.get("/api/follows").json()["following"]), 1)
+        self.assertEqual(len(a.get("/api/follows").json()["followers"]), 1)
+
+        notifs_a = a.get("/api/notifications").json()
+        self.assertGreaterEqual(notifs_a["unread_count"], 1)
+        self.assertEqual(notifs_a["items"][0]["kind"], "follow")
+
+        d_priv = a.post("/api/designs", json={"title": "QuietLily", "recipe": recipe("quiet"), "visibility": "private"}).json()
+        d_pub = a.post("/api/designs", json={"title": "SunLily", "recipe": recipe("sun"), "visibility": "public"}).json()
+        d_friends = a.post("/api/designs", json={"title": "MateLily", "recipe": recipe("mate"), "visibility": "friends"}).json()
+
+        self.assertEqual(b.post("/api/reactions", json={"target_type": "design", "target_id": d_priv["id"], "kind": "heart"}).status_code, 404)
+        self.assertEqual(b.post("/api/reactions", json={"target_type": "design", "target_id": d_friends["id"], "kind": "heart"}).status_code, 404)
+
+        feed_b = b.get("/api/social/feed").json()["items"]
+        self.assertEqual([i["title"] for i in feed_b], ["SunLily"])
+
+        with live_server() as base:
+            ws_url = base.replace("http", "ws") + "/api/ws"
+            with ws_connect(ws_url, a) as ws_a:
+                self.assertEqual(recv(ws_a)["type"], "ready")
+                r = b.post("/api/reactions", json={"target_type": "design", "target_id": d_pub["id"], "kind": "bloom"})
+                self.assertEqual(r.status_code, 200)
+                self.assertEqual(r.json()["total"], 1)
+                self.assertEqual(r.json()["my_reaction"], "bloom")
+                pushed = recv(ws_a)
+                self.assertEqual(pushed["type"], "notification")
+                self.assertEqual(pushed["notification"]["kind"], "reaction")
+
+        r2 = b.post("/api/reactions", json={"target_type": "design", "target_id": d_pub["id"], "kind": "bloom"})
+        self.assertEqual(r2.json()["total"], 0)
+        self.assertIsNone(r2.json()["my_reaction"])
+
+        nid = a.get("/api/notifications").json()["items"][0]["id"]
+        self.assertTrue(a.post(f"/api/notifications/{nid}/read").json()["is_read"])
+        self.assertEqual(a.post("/api/notifications/read-all").status_code, 204)
+        self.assertEqual(a.get("/api/notifications").json()["unread_count"], 0)
+
+        a.patch("/api/notifications/preferences", json={"friend_requests": True, "follows": False, "reactions": True, "messages": True, "projects": True, "live": True})
+        b.delete(f"/api/follows/{me_a['bloom_id']}")
+        b.post(f"/api/follows/{me_a['bloom_id']}")
+        self.assertEqual(a.get("/api/notifications").json()["unread_count"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+
+import anyio
 from collections import defaultdict
 from typing import Any
 
@@ -109,6 +111,20 @@ class ConnectionHub:
 
 
 connection_hub = ConnectionHub()
+
+
+def notify_user_sync(user_id: int, message: dict[str, Any]) -> None:
+    if not connection_hub.is_online(user_id):
+        return
+    try:
+        anyio.from_thread.run(connection_hub.send_user, user_id, message)
+    except Exception:
+        pass
+
+
+async def notify_user_async(user_id: int, message: dict[str, Any]) -> None:
+    if connection_hub.is_online(user_id):
+        await connection_hub.send_user(user_id, message)
 
 
 def _authenticate_ws(token: str | None) -> tuple[int, str, str] | None:

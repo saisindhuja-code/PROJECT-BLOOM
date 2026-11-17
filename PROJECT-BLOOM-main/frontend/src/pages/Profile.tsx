@@ -2,9 +2,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { FlowerPreview } from "../components/FlowerPreview";
 import { IconArrowLeft, IconEdit, IconFlower, IconLive, IconTogether } from "../components/Icons";
+import { ReactionBar } from "../components/ReactionBar";
 import { Avatar, Empty, Loading, Modal, SignInNeeded, formatDate } from "../components/ui";
 import { normalizeRecipe, type FlowerRecipe } from "../flower/recipe";
-import { api, errorMessage, mediaUrl } from "../lib/api";
+import { api, errorMessage, mediaUrl, type ReactionSummary } from "../lib/api";
 import { Link, useRouter } from "../lib/router";
 import { useSession } from "../lib/session";
 
@@ -14,6 +15,7 @@ interface ProfileFlower {
   recipe: unknown;
   visibility: string;
   updated_at: string;
+  reactions?: ReactionSummary;
 }
 
 interface ProfileAlbum {
@@ -34,6 +36,7 @@ interface ProfileEntry {
   photo_url: string | null;
   visibility: string;
   album_ids: number[];
+  reactions?: ReactionSummary;
 }
 
 interface ProfileData {
@@ -41,6 +44,8 @@ interface ProfileData {
   display_name: string;
   is_you: boolean;
   relation: "self" | "friend" | "request-sent" | "request-received" | "none";
+  is_following: boolean;
+  follows_you: boolean;
   request_id: number | null;
   can_view_profile: boolean;
   allow_friend_requests: boolean;
@@ -48,6 +53,8 @@ interface ProfileData {
   bio: string;
   avatar_url: string | null;
   friend_count: number | null;
+  follower_count: number | null;
+  following_count: number | null;
   created_at: string;
   flowers: ProfileFlower[];
   albums: ProfileAlbum[];
@@ -146,7 +153,7 @@ export function ProfilePage({ bloomId }: { bloomId?: string }) {
           {profile.can_view_profile && profile.bio && <p className="lede" style={{ marginTop: 6 }}>{profile.bio}</p>}
           {profile.can_view_profile && profile.friend_count !== null && (
             <p className="muted small">
-              {profile.friend_count} {profile.friend_count === 1 ? "friend" : "friends"} · joined {formatDate(profile.created_at)}
+              {profile.friend_count} {profile.friend_count === 1 ? "friend" : "friends"} · {profile.follower_count ?? 0} followers · {profile.following_count ?? 0} following · joined {formatDate(profile.created_at)}
             </p>
           )}
         </div>
@@ -158,6 +165,21 @@ export function ProfilePage({ bloomId }: { bloomId?: string }) {
             </Link>
           ) : (
             <>
+              {profile.can_view_profile && (
+                <button
+                  type="button"
+                  className={`btn${profile.is_following ? " quiet" : ""}`}
+                  disabled={busy}
+                  onClick={() =>
+                    void act(
+                      () => api(`/api/follows/${encodeURIComponent(profile.bloom_id)}`, { method: profile.is_following ? "DELETE" : "POST" }),
+                      profile.is_following ? `Unfollowed ${profile.display_name}.` : `Following ${profile.display_name}.`,
+                    )
+                  }
+                >
+                  {profile.is_following ? "Following" : "Follow"}
+                </button>
+              )}
               {profile.relation === "none" && profile.allow_friend_requests && (
                 <button
                   type="button"
@@ -270,6 +292,7 @@ export function ProfilePage({ bloomId }: { bloomId?: string }) {
                         <strong>{f.title || rec.word}</strong>
                         <span className="eyebrow">{f.visibility}</span>
                       </div>
+                      <ReactionBar targetType="design" targetId={f.id} value={f.reactions} />
                       <button
                         type="button"
                         className="btn small"
@@ -355,6 +378,7 @@ export function ProfilePage({ bloomId }: { bloomId?: string }) {
               </p>
               {openEntry.caption && <p><strong>{openEntry.caption}</strong></p>}
               {openEntry.notes && <p className="muted" style={{ whiteSpace: "pre-wrap" }}>{openEntry.notes}</p>}
+              <ReactionBar targetType="entry" targetId={openEntry.id} value={openEntry.reactions} />
               {Boolean(openEntry.recipe) && (
                 <button
                   type="button"

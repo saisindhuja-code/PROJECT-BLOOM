@@ -300,3 +300,23 @@ class ContributionIn(BaseModel):
 
 class LiveRoomIn(BaseModel):
     friend_bloom_id: str = Field(max_length=20)
+
+
+ReactionKind = Literal["heart", "bloom", "sparkle", "leaf"]
+ReactionTarget = Literal["design", "entry"]
+
+
+class ReactionIn(BaseModel):
+    target_type: ReactionTarget
+    target_id: int
+    kind: ReactionKind
+
+
+class NotificationPreferences(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    friend_requests: bool = True
+    follows: bool = True
+    reactions: bool = True
+    messages: bool = True
+    projects: bool = True
+    live: bool = True

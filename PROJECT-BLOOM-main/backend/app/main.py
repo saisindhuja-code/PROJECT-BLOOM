@@ -20,7 +20,21 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from . import realtime
 from .config import BACKEND_DIR, settings
-from .routers import auth, designs, friends, inbox, journal, live, media, profiles, projects
+from .routers import (
+    auth,
+    designs,
+    follows,
+    friends,
+    inbox,
+    journal,
+    live,
+    media,
+    notifications,
+    profiles,
+    projects,
+    reactions,
+    social,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("bloom")
@@ -59,12 +73,9 @@ UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 @app.middleware("http")
 async def protect_requests(request: Request, call_next):
-    # Cross-site request forgery guard: browsers cannot add custom headers to
-    # cross-site form posts, so every state-changing API call must carry one.
     if request.url.path.startswith("/api/") and request.method in UNSAFE_METHODS:
         if request.headers.get("x-bloom-client") != "1":
             return JSONResponse({"detail": "Missing X-Bloom-Client header."}, status_code=403)
-        # Bound JSON/non-upload request size to prevent memory exhaustion.
         content_type = (request.headers.get("content-type") or "").lower()
         if not content_type.startswith("multipart/form-data"):
             limit = settings.max_json_mb * 1024 * 1024
@@ -89,7 +100,22 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-for module in (auth, designs, media, journal, friends, profiles, projects, live, inbox, realtime):
+for module in (
+    auth,
+    designs,
+    media,
+    journal,
+    friends,
+    profiles,
+    follows,
+    reactions,
+    notifications,
+    social,
+    projects,
+    live,
+    inbox,
+    realtime,
+):
     app.include_router(module.router)
 
 

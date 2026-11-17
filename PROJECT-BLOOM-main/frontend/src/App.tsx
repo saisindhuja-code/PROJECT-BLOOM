@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from "react";
-import { BloomMark, IconCamera, IconFlower, IconInbox, IconJournal, IconLive, IconTogether, IconUser } from "./components/Icons";
+import { BloomMark, IconBell, IconCamera, IconFlower, IconInbox, IconJournal, IconLive, IconTogether, IconUser } from "./components/Icons";
 import { Loading, Modal, Toasts } from "./components/ui";
 import { errorMessage } from "./lib/api";
 import { Link, RouterProvider, matchPath, useRouter } from "./lib/router";
 import { SessionProvider, useSession } from "./lib/session";
 import { AccountPage } from "./pages/Account";
+import { ActivityPage } from "./pages/Activity";
 import { AuthPage } from "./pages/Auth";
 import { CamPage } from "./pages/Cam";
 import { EntryPage } from "./pages/Entry";
@@ -13,6 +14,7 @@ import { HomePage } from "./pages/Home";
 import { JournalPage } from "./pages/Journal";
 import { LivePage } from "./pages/Live";
 import { LiveRoomPage } from "./pages/LiveRoom";
+import { NotificationsPage } from "./pages/Notifications";
 import { ProfilePage } from "./pages/Profile";
 import { ProjectPage } from "./pages/Project";
 import { StudioPage } from "./pages/Studio";
@@ -38,6 +40,8 @@ const ROUTES: Array<{ path: string; render: (params: Record<string, string>) => 
   { path: "/journal", render: () => <JournalPage /> },
   { path: "/journal/:id", render: (p) => <EntryPage id={p.id} /> },
   { path: "/friends", render: () => <FriendsPage /> },
+  { path: "/activity", render: () => <ActivityPage /> },
+  { path: "/notifications", render: () => <NotificationsPage /> },
   { path: "/together", render: () => <TogetherPage /> },
   { path: "/together/:id", render: (p) => <ProjectPage id={Number(p.id)} /> },
   { path: "/live", render: () => <LivePage /> },
@@ -160,7 +164,7 @@ function InboxDialog({ onClose }: { onClose: () => void }) {
 
 function Shell() {
   const { path } = useRouter();
-  const { user, inbox, serverOnline, deviceMode, ready } = useSession();
+  const { user, inbox, unreadNotifications, serverOnline, deviceMode, ready } = useSession();
   const [inboxOpen, setInboxOpen] = useState(false);
   const isActive = (to: string) => path === to || path.startsWith(`${to}/`);
 
@@ -199,10 +203,16 @@ function Shell() {
             </span>
           )}
           {user && (
-            <button type="button" className="btn icon quiet inbox-button" onClick={() => setInboxOpen(true)} aria-label={`Inbox, ${inbox?.count ?? 0} waiting`}>
-              <IconInbox />
-              {inbox && inbox.count > 0 && <span className="badge">{inbox.count}</span>}
-            </button>
+            <>
+              <Link to="/notifications" className="btn icon quiet inbox-button" aria-label={`Notifications, ${unreadNotifications} unread`}>
+                <IconBell />
+                {unreadNotifications > 0 && <span className="badge">{unreadNotifications}</span>}
+              </Link>
+              <button type="button" className="btn icon quiet inbox-button" onClick={() => setInboxOpen(true)} aria-label={`Inbox, ${inbox?.count ?? 0} waiting`}>
+                <IconInbox />
+                {inbox && inbox.count > 0 && <span className="badge">{inbox.count}</span>}
+              </button>
+            </>
           )}
           {user ? (
             <Link to="/account" className="btn small quiet" aria-label="Your account">

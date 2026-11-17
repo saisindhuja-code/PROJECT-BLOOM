@@ -133,6 +133,36 @@ export interface User {
   created_at: string;
 }
 
+export type ReactionKind = "heart" | "bloom" | "sparkle" | "leaf";
+
+export interface ReactionSummary {
+  counts: Partial<Record<ReactionKind, number>>;
+  total: number;
+  my_reaction: ReactionKind | null;
+}
+
+export interface AppNotification {
+  id: number;
+  kind: string;
+  title: string;
+  body: string;
+  link: string;
+  target_type: string | null;
+  target_id: string | null;
+  is_read: boolean;
+  created_at: string;
+  actor: { bloom_id: string; display_name: string } | null;
+}
+
+export interface NotificationPreferences {
+  friend_requests: boolean;
+  follows: boolean;
+  reactions: boolean;
+  messages: boolean;
+  projects: boolean;
+  live: boolean;
+}
+
 export interface PublicUser {
   bloom_id: string;
   display_name: string;
