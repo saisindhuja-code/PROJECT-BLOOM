@@ -70,7 +70,7 @@ def feed(
     if kind in {"all", "entries"}:
         entries = db.scalars(
             select(JournalEntry)
-            .where(JournalEntry.owner_id.in_(candidate_owner_ids), JournalEntry.visibility.in_(["friends", "public"]))
+            .where(JournalEntry.owner_id.in_(candidate_owner_ids), JournalEntry.deleted_at.is_(None), JournalEntry.visibility.in_(["friends", "public"]))
             .order_by(JournalEntry.taken_at.desc(), JournalEntry.id.desc())
             .limit(80)
         ).all()

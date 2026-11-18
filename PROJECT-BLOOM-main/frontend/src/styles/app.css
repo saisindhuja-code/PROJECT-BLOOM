@@ -2746,3 +2746,12 @@ input[type="range"]::-moz-range-thumb {
     grid-template-columns: 1fr;
   }
 }
+
+.together-chat-box {
+  height: 540px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--night);
+  margin-top: 12px;
+}

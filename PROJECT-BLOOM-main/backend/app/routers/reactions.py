@@ -49,7 +49,7 @@ def _load_target(db: Session, target_type: str, target_id: int, viewer: User) ->
         owner = db.get(User, design.owner_id)
         return design.owner_id, design.title or "your flower", f"/profile/{owner.bloom_id if owner else ''}"
     entry = db.get(JournalEntry, target_id)
-    if entry is None or not visibility_allows(db, entry.owner_id, entry.visibility, viewer):
+    if entry is None or entry.deleted_at is not None or not visibility_allows(db, entry.owner_id, entry.visibility, viewer):
         raise not_found("That entry")
     return entry.owner_id, entry.title or "your journal page", f"/journal/{entry.id}"
 

@@ -49,6 +49,9 @@ class FlowerDesign(Base):
     title: Mapped[str] = mapped_column(String(80))
     recipe: Mapped[dict[str, Any]] = mapped_column(JSON)
     visibility: Mapped[str] = mapped_column(String(12), default="private")
+    scrapbook_doc: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -142,6 +145,7 @@ class Project(Base):
     shared_recipe: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     layout: Mapped[str] = mapped_column(String(24), default="side-by-side")
     theme_state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -323,4 +327,16 @@ class MessageReaction(Base):
     message_id: Mapped[int] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     kind: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Sticker(Base):
+    """User-uploaded reusable sticker for scrapbook pages."""
+
+    __tablename__ = "stickers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(60), default="Sticker")
+    media_id: Mapped[int] = mapped_column(ForeignKey("media.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

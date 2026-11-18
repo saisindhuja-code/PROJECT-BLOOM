@@ -173,7 +173,7 @@ def get_profile(
         e
         for e in db.scalars(
             select(JournalEntry)
-            .where(JournalEntry.owner_id == target.id)
+            .where(JournalEntry.owner_id == target.id, JournalEntry.deleted_at.is_(None))
             .order_by(JournalEntry.taken_at.desc(), JournalEntry.id.desc())
         ).all()
         if visibility_allows(db, target.id, e.visibility, user)

@@ -1,4 +1,4 @@
-"""The Bloom Journal: entries, albums, search, visibility."""
+"""The Bloom Journal: entries, scrapbook pages, albums, search, trash/restore & reorder."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from ..access import active_membership, not_found, release_media, require_owned_media
 from ..db import get_db
 from ..models import Album, AlbumEntry, JournalEntry, Project, User
-from ..schemas import AlbumIn, AlbumPatch, JournalIn, JournalPatch
+from ..schemas import AlbumIn, AlbumPatch, JournalIn, JournalPatch, JournalReorderIn
 from ..security import current_user
 from ..storage import storage
 
@@ -34,6 +34,9 @@ def entry_out(entry: JournalEntry) -> dict[str, Any]:
         "original_url": f"/api/media/{entry.original_media_id}" if entry.original_media_id else None,
         "original_media_id": entry.original_media_id,
         "edit_state": entry.edit_state,
+        "scrapbook_doc": entry.scrapbook_doc,
+        "sort_order": entry.sort_order,
+        "deleted_at": entry.deleted_at,
         "project_id": entry.project_id,
         "participants": entry.participants or [],
         "album_ids": sorted(a.id for a in entry.albums),
@@ -59,20 +62,41 @@ def _owned_albums(db: Session, album_ids: list[int], user: User) -> list[Album]:
     return list(albums)
 
 
+def _validate_scrapbook_media(db: Session, doc: dict[str, Any] | None, user: User) -> set[int]:
+    ids: set[int] = set()
+    if not doc:
+        return ids
+    elements = doc.get("elements")
+    if not isinstance(elements, list):
+        return ids
+    for el in elements:
+        if isinstance(el, dict) and isinstance(el.get("mediaId"), int):
+            require_owned_media(db, el["mediaId"], user)
+            ids.add(el["mediaId"])
+    return ids
+
+
 @router.get("/journal")
 def list_entries(
     q: str = Query(default="", max_length=100),
     entry_type: str | None = Query(default=None, alias="type"),
     album_id: int | None = None,
+    trashed: bool = False,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> list[dict[str, Any]]:
     query = select(JournalEntry).where(JournalEntry.owner_id == user.id)
-    if entry_type in {"flower", "photo", "composition"}:
+    if trashed:
+        query = query.where(JournalEntry.deleted_at.is_not(None))
+    else:
+        query = query.where(JournalEntry.deleted_at.is_(None))
+    if entry_type in {"flower", "photo", "composition", "scrapbook"}:
         query = query.where(JournalEntry.entry_type == entry_type)
     if album_id is not None:
         query = query.join(AlbumEntry, AlbumEntry.entry_id == JournalEntry.id).where(AlbumEntry.album_id == album_id)
-    entries = db.scalars(query.order_by(JournalEntry.taken_at.desc(), JournalEntry.id.desc())).all()
+    entries = db.scalars(
+        query.order_by(JournalEntry.sort_order.desc(), JournalEntry.taken_at.desc(), JournalEntry.id.desc())
+    ).all()
     needle = q.strip().lower()
     if needle:
         def matches(entry: JournalEntry) -> bool:
@@ -90,6 +114,7 @@ def list_entries(
 def create_entry(body: JournalIn, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
     require_owned_media(db, body.photo_media_id, user)
     require_owned_media(db, body.original_media_id, user)
+    _validate_scrapbook_media(db, body.scrapbook_doc, user)
     if body.entry_type == "flower" and body.recipe is None:
         raise HTTPException(422, "A flower entry needs its recipe.")
     if body.entry_type in {"photo", "composition"} and body.photo_media_id is None:
@@ -121,6 +146,8 @@ def create_entry(body: JournalIn, user: User = Depends(current_user), db: Sessio
         photo_media_id=body.photo_media_id,
         original_media_id=body.original_media_id,
         edit_state=body.edit_state,
+        scrapbook_doc=body.scrapbook_doc,
+        sort_order=body.sort_order,
         project_id=body.project_id,
         participants=participants,
         visibility=body.visibility,
@@ -129,6 +156,19 @@ def create_entry(body: JournalIn, user: User = Depends(current_user), db: Sessio
     db.add(entry)
     db.commit()
     return entry_out(entry)
+
+
+@router.post("/journal/reorder", status_code=status.HTTP_204_NO_CONTENT)
+def reorder_entries(body: JournalReorderIn, user: User = Depends(current_user), db: Session = Depends(get_db)) -> None:
+    entries = db.scalars(
+        select(JournalEntry).where(JournalEntry.id.in_(set(body.entry_ids)), JournalEntry.owner_id == user.id)
+    ).all()
+    by_id = {e.id: e for e in entries}
+    total = len(body.entry_ids)
+    for idx, eid in enumerate(body.entry_ids):
+        if eid in by_id:
+            by_id[eid].sort_order = total - idx
+    db.commit()
 
 
 @router.get("/journal/{entry_id}")
@@ -155,6 +195,17 @@ def update_entry(
         entry.recipe = body.recipe.model_dump()
     if body.visibility is not None:
         entry.visibility = body.visibility
+    if body.sort_order is not None:
+        entry.sort_order = body.sort_order
+    if body.scrapbook_doc is not None:
+        old_sb_ids = {
+            el["mediaId"]
+            for el in ((entry.scrapbook_doc or {}).get("elements") or [])
+            if isinstance(el, dict) and isinstance(el.get("mediaId"), int)
+        }
+        new_sb_ids = _validate_scrapbook_media(db, body.scrapbook_doc, user)
+        released.extend(old_sb_ids - new_sb_ids)
+        entry.scrapbook_doc = body.scrapbook_doc
     if body.photo_media_id is not None and body.photo_media_id != entry.photo_media_id:
         require_owned_media(db, body.photo_media_id, user)
         released.append(entry.photo_media_id)
@@ -180,6 +231,23 @@ def update_entry(
     return entry_out(entry)
 
 
+@router.post("/journal/{entry_id}/trash")
+def trash_entry(entry_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
+    entry = _owned_entry(db, entry_id, user)
+    if entry.deleted_at is None:
+        entry.deleted_at = datetime.now(timezone.utc)
+        db.commit()
+    return entry_out(entry)
+
+
+@router.post("/journal/{entry_id}/restore")
+def restore_entry(entry_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
+    entry = _owned_entry(db, entry_id, user)
+    entry.deleted_at = None
+    db.commit()
+    return entry_out(entry)
+
+
 @router.post("/journal/{entry_id}/duplicate", status_code=status.HTTP_201_CREATED)
 def duplicate_entry(entry_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
     entry = _owned_entry(db, entry_id, user)
@@ -194,6 +262,8 @@ def duplicate_entry(entry_id: int, user: User = Depends(current_user), db: Sessi
         photo_media_id=entry.photo_media_id,
         original_media_id=entry.original_media_id,
         edit_state=entry.edit_state,
+        scrapbook_doc=entry.scrapbook_doc,
+        sort_order=entry.sort_order,
         project_id=entry.project_id,
         participants=entry.participants,
         visibility="private",
@@ -207,7 +277,12 @@ def duplicate_entry(entry_id: int, user: User = Depends(current_user), db: Sessi
 @router.delete("/journal/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_entry(entry_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)) -> None:
     entry = _owned_entry(db, entry_id, user)
-    media_ids = [entry.photo_media_id, entry.original_media_id]
+    sb_media_ids = [
+        el["mediaId"]
+        for el in ((entry.scrapbook_doc or {}).get("elements") or [])
+        if isinstance(el, dict) and isinstance(el.get("mediaId"), int)
+    ]
+    media_ids = [entry.photo_media_id, entry.original_media_id, *sb_media_ids]
     doomed: list[str] = []
     db.delete(entry)
     db.flush()
@@ -219,7 +294,13 @@ def delete_entry(entry_id: int, user: User = Depends(current_user), db: Session 
 
 
 def album_out(db: Session, album: Album) -> dict[str, Any]:
-    count = len(db.scalars(select(AlbumEntry.entry_id).where(AlbumEntry.album_id == album.id)).all())
+    count = len(
+        db.scalars(
+            select(AlbumEntry.entry_id)
+            .join(JournalEntry, JournalEntry.id == AlbumEntry.entry_id)
+            .where(AlbumEntry.album_id == album.id, JournalEntry.deleted_at.is_(None))
+        ).all()
+    )
     return {
         "id": album.id,
         "name": album.name,

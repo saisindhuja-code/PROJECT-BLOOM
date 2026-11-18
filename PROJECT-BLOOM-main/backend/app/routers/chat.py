@@ -240,6 +240,8 @@ def list_conversations(
     )
     if kind in {"dm", "group", "studio", "project"}:
         query = query.where(Conversation.kind == kind)
+    else:
+        query = query.where(Conversation.kind.in_(["dm", "group", "studio"]))
     rows = db.execute(query.order_by(Conversation.updated_at.desc(), Conversation.id.desc())).all()
 
     needle = q.strip().lower()
@@ -340,7 +342,7 @@ def create_group(body: GroupCreateIn, user: User = Depends(current_user), db: Se
             user,
             kind="group_message",
             title=f"{user.display_name} added you to “{conv.title}”",
-            link=f"/chat/{conv.id}",
+            link=f"/together/{conv.project_id}" if conv.kind == "project" and conv.project_id else f"/chat/{conv.id}",
             target_type="conversation",
             target_id=conv.id,
         )
@@ -590,7 +592,7 @@ def _build_shared_ref(db: Session, share_type: str, share_id: int, user: User) -
             raise not_found("That flower")
         return {"type": "design", "id": design.id, "title": design.title, "recipe": design.recipe}, None
     entry = db.get(JournalEntry, share_id)
-    if entry is None or not visibility_allows(db, entry.owner_id, entry.visibility, user):
+    if entry is None or entry.deleted_at is not None or not visibility_allows(db, entry.owner_id, entry.visibility, user):
         raise not_found("That journal entry")
     return (
         {
@@ -656,7 +658,15 @@ def send_message(
     db.flush()
     me.last_read_message_id = msg.id
 
-    notif_kind = "message" if conv.kind == "dm" else "group_message" if conv.kind == "group" else "studio_message"
+    notif_kind = (
+        "message"
+        if conv.kind == "dm"
+        else "group_message"
+        if conv.kind == "group"
+        else "project_activity"
+        if conv.kind == "project"
+        else "studio_message"
+    )
     notif_title = (
         f"New message from {user.display_name}"
         if conv.kind == "dm"

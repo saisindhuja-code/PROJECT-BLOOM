@@ -718,5 +718,127 @@ class BloomApiTest(unittest.TestCase):
         self.assertEqual(len(loaded["edit_state"]["layers"]), 2)
 
 
+    def test_12_phase8_together_realtime_and_session_chat(self) -> None:
+        a, me_a = self.client("twin_alice", "Alice")
+        b, me_b = self.client("twin_bob", "Bob")
+        c, _ = self.client("twin_eve", "Eve")
+
+        a.post("/api/friends/requests", json={"bloom_id": me_b["bloom_id"]})
+        req = b.get("/api/friends").json()["incoming"][0]["request_id"]
+        b.post(f"/api/friends/requests/{req}/accept")
+
+        proj = a.post(
+            "/api/projects",
+            json={"title": "Twin Session", "mode": "twin", "invite_bloom_id": me_b["bloom_id"], "shared_recipe": recipe("twin")},
+        ).json()
+        pid = proj["id"]
+        self.assertEqual(proj["version"], 1)
+
+        # Invited friend cannot access session chat before accepting
+        self.assertEqual(b.get(f"/api/projects/{pid}/chat").status_code, 404)
+        self.assertEqual(c.get(f"/api/projects/{pid}/chat").status_code, 404)
+
+        b.post(f"/api/projects/{pid}/accept")
+        chat_b = b.get(f"/api/projects/{pid}/chat").json()
+        cid = chat_b["id"]
+        self.assertEqual(chat_b["kind"], "project")
+        # Project chat stays separate from personal/group/studio chat lists
+        self.assertEqual(b.get("/api/chat/conversations").json(), [])
+
+        # Send message in session chat
+        msg = a.post(f"/api/chat/conversations/{cid}/messages", json={"kind": "text", "body": "Ready to shoot!"}).json()
+        self.assertEqual(b.get(f"/api/chat/conversations/{cid}/messages").json()["items"][0]["id"], msg["id"])
+
+        # Optimistic concurrency conflict check
+        ok_patch = a.patch(f"/api/projects/{pid}", json={"layout": "polaroid-pair", "expected_version": 2})
+        self.assertEqual(ok_patch.status_code, 200)
+        self.assertEqual(ok_patch.json()["version"], 3)
+        stale_patch = b.patch(f"/api/projects/{pid}", json={"layout": "stacked", "expected_version": 2})
+        self.assertEqual(stale_patch.status_code, 409)
+
+        # Real-time WebSocket sync on project:{pid}
+        with live_server() as base:
+            ws_url = base.replace("http", "ws") + "/api/ws"
+            with ws_connect(ws_url, a) as ws_a, ws_connect(ws_url, b) as ws_b:
+                self.assertEqual(recv(ws_a)["type"], "ready")
+                self.assertEqual(recv(ws_b)["type"], "ready")
+                send(ws_a, {"type": "subscribe", "channel": f"project:{pid}"})
+                self.assertEqual(recv(ws_a)["type"], "subscribed")
+                self.assertEqual(recv(ws_a)["type"], "project.presence")
+                send(ws_b, {"type": "subscribe", "channel": f"project:{pid}"})
+                self.assertEqual(recv(ws_b)["type"], "subscribed")
+                self.assertEqual(recv(ws_b)["type"], "project.presence")
+                self.assertEqual(recv(ws_a)["type"], "project.presence")
+
+                # Twin Bloom ephemeral live draft sync
+                send(ws_a, {"type": "project.draft", "channel": f"project:{pid}", "recipe": recipe("bloom2")})
+                draft_ev = recv(ws_b)
+                self.assertEqual(draft_ev["type"], "project.draft")
+                self.assertEqual(draft_ev["recipe"]["word"], "bloom2")
+
+                # Persisted patch broadcasts project.updated
+                a.patch(f"/api/projects/{pid}", json={"shared_recipe": recipe("bloom2")})
+                upd_ev = recv(ws_b)
+                self.assertEqual(upd_ev["type"], "project.updated")
+
+        # Revoking member removes access to both project and session chat
+        self.assertEqual(a.delete(f"/api/projects/{pid}/members/{me_b['bloom_id']}").status_code, 204)
+        self.assertEqual(b.get(f"/api/projects/{pid}/chat").status_code, 404)
+        self.assertEqual(b.get(f"/api/chat/conversations/{cid}/messages").status_code, 404)
+
+
+    def test_11_phase7_scrapbook_trash_restore_reorder_and_stickers(self) -> None:
+        a, _ = self.client("scrap_alice", "Alice")
+        b, _ = self.client("scrap_bob", "Bob")
+
+        stk_img = self.upload(a, kind="sticker")
+        stk = a.post("/api/stickers", json={"name": "Daisy Seal", "media_id": stk_img["id"]})
+        self.assertEqual(stk.status_code, 201, stk.text)
+        self.assertEqual(len(a.get("/api/stickers").json()), 1)
+        self.assertEqual(b.delete(f"/api/stickers/{stk.json()['id']}").status_code, 404)
+        self.assertEqual(a.delete(f"/api/stickers/{stk.json()['id']}").status_code, 204)
+        self.assertEqual(a.get(stk_img["url"]).status_code, 404)
+
+        p1 = self.upload(a, kind="photo")
+        snap = self.upload(a, kind="photo")
+        sb = a.post(
+            "/api/journal",
+            json={
+                "entry_type": "scrapbook",
+                "title": "Autumn Pages",
+                "photo_media_id": snap["id"],
+                "visibility": "public",
+                "scrapbook_doc": {
+                    "style": "kraft-letters",
+                    "elements": [
+                        {"id": "e1", "type": "photo", "mediaId": p1["id"], "x": 0.25, "y": 0.35, "w": 0.4, "h": 0.4, "rot": -4},
+                        {"id": "e2", "type": "label", "text": "October 2026", "x": 0.6, "y": 0.7, "rot": 2},
+                    ],
+                    "strokes": [{"color": "#4a2a22", "width": 3, "points": [[0.1, 0.1], [0.2, 0.2]]}],
+                },
+            },
+        )
+        self.assertEqual(sb.status_code, 201, sb.text)
+        sb_id = sb.json()["id"]
+        self.assertEqual(b.get(p1["url"]).status_code, 200)
+
+        self.assertEqual(a.post(f"/api/journal/{sb_id}/trash").status_code, 200)
+        self.assertEqual(len(a.get("/api/journal").json()), 0)
+        self.assertEqual(len(a.get("/api/journal", params={"trashed": True}).json()), 1)
+        self.assertEqual(b.get(p1["url"]).status_code, 404)
+        self.assertEqual(a.post(f"/api/journal/{sb_id}/restore").status_code, 200)
+        self.assertEqual(len(a.get("/api/journal").json()), 1)
+        self.assertEqual(b.get(p1["url"]).status_code, 200)
+
+        f1 = a.post("/api/journal", json={"entry_type": "flower", "title": "First", "recipe": recipe("one")}).json()
+        self.assertEqual(a.post("/api/journal/reorder", json={"entry_ids": [sb_id, f1["id"]]}).status_code, 204)
+        ordered = [e["id"] for e in a.get("/api/journal").json()]
+        self.assertEqual(ordered, [sb_id, f1["id"]])
+
+        self.assertEqual(a.delete(f"/api/journal/{sb_id}").status_code, 204)
+        self.assertEqual(a.get(p1["url"]).status_code, 404)
+        self.assertEqual(a.get(snap["url"]).status_code, 404)
+
+
 if __name__ == "__main__":
     unittest.main()

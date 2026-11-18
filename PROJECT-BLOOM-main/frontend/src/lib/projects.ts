@@ -39,6 +39,8 @@ export interface Project {
   owner: PublicUser;
   is_owner: boolean;
   my_status: "invited" | "active" | null;
+  version?: number;
+  online?: string[];
   created_at: string;
   updated_at: string;
   layout?: LayoutId;

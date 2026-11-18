@@ -199,7 +199,16 @@ class MediaOut(BaseModel):
     content_type: str
 
 
-EntryType = Literal["flower", "photo", "composition"]
+EntryType = Literal["flower", "photo", "composition", "scrapbook"]
+MAX_SCRAPBOOK_DOC_BYTES = 256 * 1024
+
+
+def _validate_scrapbook_size(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if len(json.dumps(value, separators=(",", ":"))) > MAX_SCRAPBOOK_DOC_BYTES:
+        raise ValueError("scrapbook document is too large")
+    return value
 
 
 class JournalIn(BaseModel):
@@ -215,6 +224,13 @@ class JournalIn(BaseModel):
     project_id: int | None = None
     album_ids: list[int] = Field(default_factory=list, max_length=50)
     visibility: Visibility = "private"
+    scrapbook_doc: dict[str, Any] | None = None
+    sort_order: int = 0
+
+    @field_validator("scrapbook_doc")
+    @classmethod
+    def _scrapbook_size(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return _validate_scrapbook_size(value)
 
     @field_validator("edit_state")
     @classmethod
@@ -234,6 +250,13 @@ class JournalPatch(BaseModel):
     edit_state: dict[str, Any] | None = None
     album_ids: list[int] | None = Field(default=None, max_length=50)
     visibility: Visibility | None = None
+    scrapbook_doc: dict[str, Any] | None = None
+    sort_order: int | None = None
+
+    @field_validator("scrapbook_doc")
+    @classmethod
+    def _scrapbook_size_patch(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return _validate_scrapbook_size(value)
 
     @field_validator("edit_state")
     @classmethod
@@ -289,6 +312,7 @@ class ProjectPatch(BaseModel):
     layout: Layout | None = None
     theme_state: dict[str, Any] | None = None
     shared_recipe: FlowerRecipe | None = None
+    expected_version: int | None = None
 
     @field_validator("theme_state")
     @classmethod
@@ -406,3 +430,16 @@ class MessageSendIn(BaseModel):
 
 class MessageReactionIn(BaseModel):
     kind: ReactionKind
+class JournalReorderIn(BaseModel):
+    entry_ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class StickerIn(BaseModel):
+    name: str = Field(default="Sticker", min_length=1, max_length=60)
+    media_id: int
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        return cleaned or "Sticker"

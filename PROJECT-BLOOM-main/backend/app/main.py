@@ -35,6 +35,7 @@ from .routers import (
     projects,
     reactions,
     social,
+    stickers,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -113,6 +114,7 @@ for module in (
     notifications,
     social,
     chat,
+    stickers,
     projects,
     live,
     inbox,

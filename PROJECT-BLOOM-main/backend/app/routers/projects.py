@@ -1,10 +1,6 @@
 """
-Bloom Together: private shared projects for two friends.
-
-Modes
-- twin:   one shared flower design, each person adds their own photo
-- two:    each person adds their own flower and photo
-- moment: each person adds up to four photos and/or flowers
+Bloom Together 2.0: real-time + asynchronous shared projects for two friends,
+with optimistic conflict detection and a permission-linked session chat.
 """
 
 from __future__ import annotations
@@ -17,11 +13,13 @@ from sqlalchemy.orm import Session
 
 from ..access import are_friends, not_found, release_media, require_active_member, require_owned_media
 from ..db import get_db
-from ..models import Contribution, Project, ProjectMember, User, utcnow
+from ..models import Contribution, Conversation, ConversationMember, Project, ProjectMember, User, utcnow
 from ..notifications import emit_notification, push_pending
+from ..realtime import broadcast_channel_sync, connection_hub
 from ..schemas import ContributionIn, FriendRequestIn, ProjectIn, ProjectPatch
 from ..security import current_user
 from ..storage import storage
+from .chat import _conversation_out
 from .friends import find_by_bloom_id
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -37,6 +35,36 @@ def _membership(project: Project, user_id: int) -> ProjectMember | None:
 def _is_active(project: Project, user_id: int) -> bool:
     member = _membership(project, user_id)
     return member is not None and member.status == "active"
+
+
+def _ensure_project_conversation(db: Session, project: Project) -> Conversation:
+    conv = db.scalar(select(Conversation).where(Conversation.project_id == project.id))
+    if conv is None:
+        conv = Conversation(
+            kind="project",
+            title=project.title,
+            project_id=project.id,
+            created_by=project.owner_id,
+        )
+        db.add(conv)
+        db.flush()
+    active_ids = {m.user_id for m in project.members if m.status == "active"}
+    existing_by_uid = {cm.user_id: cm for cm in conv.members}
+    for uid, cm in list(existing_by_uid.items()):
+        if uid not in active_ids:
+            db.delete(cm)
+    for m in project.members:
+        if m.status == "active" and m.user_id not in existing_by_uid:
+            conv.members.append(
+                ConversationMember(
+                    conversation_id=conv.id,
+                    user_id=m.user_id,
+                    role="owner" if m.role == "owner" else "member",
+                )
+            )
+    db.flush()
+    db.refresh(conv)
+    return conv
 
 
 def project_out(project: Project, viewer: User) -> dict[str, Any]:
@@ -56,6 +84,8 @@ def project_out(project: Project, viewer: User) -> dict[str, Any]:
     names = {m.user_id: m.user for m in project.members}
     return {
         **base,
+        "version": project.version,
+        "online": connection_hub.channel_bloom_ids(f"project:{project.id}"),
         "layout": project.layout,
         "theme_state": project.theme_state,
         "shared_recipe": project.shared_recipe,
@@ -117,6 +147,13 @@ def _release_ids(db: Session, media_ids: set[int]) -> None:
         storage.delete(key)
 
 
+def _broadcast_project_update(project: Project, by: User, kind: str = "project.updated") -> None:
+    broadcast_channel_sync(
+        f"project:{project.id}",
+        {"type": kind, "project_id": project.id, "version": project.version, "by": by.bloom_id},
+    )
+
+
 @router.get("")
 def list_projects(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     projects = db.scalars(
@@ -136,17 +173,22 @@ def create_project(body: ProjectIn, user: User = Depends(current_user), db: Sess
         mode=body.mode,
         shared_recipe=body.shared_recipe.model_dump() if body.shared_recipe else None,
         layout="side-by-side",
+        version=1,
     )
     project.members.append(ProjectMember(user_id=user.id, role="owner", status="active"))
     db.add(project)
     db.flush()
+    _ensure_project_conversation(db, project)
+
     invited_user = None
     if body.invite_bloom_id:
         invited_user = _invite(db, project, user, body.invite_bloom_id)
     ev = None
     if invited_user is not None:
         ev = emit_notification(
-            db, invited_user, user,
+            db,
+            invited_user,
+            user,
             kind="project_invite",
             title=f"{user.display_name} invited you to “{project.title}”",
             link=f"/together/{project.id}",
@@ -167,23 +209,44 @@ def get_project(project_id: int, user: User = Depends(current_user), db: Session
     return project_out(project, user)
 
 
+@router.get("/{project_id}/chat")
+def get_project_chat(project_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
+    project = require_active_member(db, project_id, user)
+    conv = _ensure_project_conversation(db, project)
+    db.commit()
+    db.refresh(conv)
+    me_member = next(m for m in conv.members if m.user_id == user.id)
+    return _conversation_out(db, conv, user, me_member)
+
+
 @router.patch("/{project_id}")
 def update_project(
     project_id: int, body: ProjectPatch, user: User = Depends(current_user), db: Session = Depends(get_db)
 ):
     project = require_active_member(db, project_id, user)
+    if body.expected_version is not None and body.expected_version != project.version:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Someone else just updated this project. Refreshing to the latest version.",
+        )
     if body.title is not None:
         if project.owner_id != user.id:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the person who started the project can rename it.")
         project.title = body.title.strip()
+        conv = db.scalar(select(Conversation).where(Conversation.project_id == project.id))
+        if conv is not None:
+            conv.title = project.title
     if body.layout is not None:
         project.layout = body.layout
     if body.theme_state is not None:
         project.theme_state = body.theme_state
     if body.shared_recipe is not None:
         project.shared_recipe = body.shared_recipe.model_dump()
+    project.version += 1
+    project.updated_at = utcnow()
     db.commit()
     db.refresh(project)
+    _broadcast_project_update(project, user)
     return project_out(project, user)
 
 
@@ -192,7 +255,9 @@ def invite(project_id: int, body: FriendRequestIn, user: User = Depends(current_
     project = _owned_project(db, project_id, user)
     invited_user = _invite(db, project, user, body.bloom_id)
     ev = emit_notification(
-        db, invited_user, user,
+        db,
+        invited_user,
+        user,
         kind="project_invite",
         title=f"{user.display_name} invited you to “{project.title}”",
         link=f"/together/{project.id}",
@@ -212,8 +277,12 @@ def accept_invite(project_id: int, user: User = Depends(current_user), db: Sessi
     if member is None or member.status != "invited":
         raise not_found("That invitation")
     member.status = "active"
+    project.version += 1
+    _ensure_project_conversation(db, project)
     ev = emit_notification(
-        db, project.owner, user,
+        db,
+        project.owner,
+        user,
         kind="project_activity",
         title=f"{user.display_name} joined “{project.title}”",
         link=f"/together/{project.id}",
@@ -223,6 +292,7 @@ def accept_invite(project_id: int, user: User = Depends(current_user), db: Sessi
     db.commit()
     push_pending([ev])
     db.refresh(project)
+    _broadcast_project_update(project, user, "project.member")
     return project_out(project, user)
 
 
@@ -235,6 +305,8 @@ def _remove_member(db: Session, project: Project, member: ProjectMember) -> set[
         released = {item["media_id"] for item in contribution.items or [] if item.get("media_id")}
         db.delete(contribution)
     project.members.remove(member)
+    _ensure_project_conversation(db, project)
+    project.version += 1
     return released
 
 
@@ -264,6 +336,7 @@ def leave(project_id: int, user: User = Depends(current_user), db: Session = Dep
         _release_ids(db, released)
     else:
         db.commit()
+    _broadcast_project_update(project, user, "project.member")
 
 
 @router.delete("/{project_id}/members/{bloom_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -279,6 +352,7 @@ def revoke_member(
         _release_ids(db, released)
     else:
         db.commit()
+    _broadcast_project_update(project, user, "project.member")
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -290,11 +364,13 @@ def close_project(project_id: int, user: User = Depends(current_user), db: Sessi
         for item in c.items or []
         if item.get("media_id")
     }
+    pid = project.id
     db.delete(project)
     if released:
         _release_ids(db, released)
     else:
         db.commit()
+    broadcast_channel_sync(f"project:{pid}", {"type": "project.closed", "project_id": pid})
 
 
 @router.put("/{project_id}/contribution")
@@ -328,11 +404,14 @@ def save_contribution(
         old_ids = {item["media_id"] for item in contribution.items or [] if item.get("media_id")}
         contribution.items = items
     new_ids = {item["media_id"] for item in items if item.get("media_id")}
+    project.version += 1
     project.updated_at = utcnow()
     contribution.updated_at = utcnow()
     events = [
         emit_notification(
-            db, m.user, user,
+            db,
+            m.user,
+            user,
             kind="project_activity",
             title=f"{user.display_name} updated their part in “{project.title}”",
             link=f"/together/{project.id}",
@@ -349,4 +428,5 @@ def save_contribution(
         db.commit()
     push_pending(events)
     db.refresh(project)
+    _broadcast_project_update(project, user)
     return project_out(project, user)

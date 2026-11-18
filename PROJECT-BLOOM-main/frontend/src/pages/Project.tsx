@@ -1,24 +1,36 @@
 /**
- * A Bloom Together project. Each person edits only their own part; layout,
- * theme and (for Twin Bloom) the shared flower are chosen together. Nobody
- * needs to be online at the same time: changes are saved to the server and
- * picked up by the other person whenever they open the project.
+ * Bloom Together 2.0 project workspace:
+ * - Real-time WebSocket sync (project:{id}), live presence & reconnect catch-up
+ * - Twin Bloom live shared flower customization + draft preview
+ * - Optimistic concurrency conflict handling (409 auto-refresh)
+ * - Permission-linked Bloom Together Session Chat (<ChatView>)
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CameraView } from "../components/CameraView";
-import { IconCamera, IconJournal, IconPlus, IconTrash, IconUpload } from "../components/Icons";
+import { ChatView } from "../components/ChatView";
+import { Paints, WordField } from "../components/FlowerControls";
+import { IconCamera, IconChat, IconJournal, IconPlus, IconTrash, IconUpload } from "../components/Icons";
 import { OverlayControls } from "../components/OverlayControls";
 import { RecipePicker } from "../components/RecipePicker";
 import { SaveDialog, isoFromLocalInput, type SaveDetails } from "../components/SaveDialog";
 import { SlotEditor } from "../components/SlotEditor";
 import { ThemeGallery } from "../components/ThemeGallery";
 import { Avatar, Loading, Modal, SignInNeeded, formatDate } from "../components/ui";
-import type { FlowerRecipe } from "../flower/recipe";
+import { normalizeRecipe, type FlowerRecipe } from "../flower/recipe";
 import { canvasToBlob } from "../flower/render";
-import { LAYOUTS, defaultPhotoTransform, defaultPlacement, layoutSpec, renderComposition, type FlowerPlacement, type LayoutId } from "../imaging/compose";
+import {
+  LAYOUTS,
+  defaultPhotoTransform,
+  defaultPlacement,
+  layoutSpec,
+  renderComposition,
+  type FlowerPlacement,
+  type LayoutId,
+} from "../imaging/compose";
 import { context2d, renderThemed, toCanvas } from "../imaging/process";
 import { themeById, type ThemeSettings } from "../imaging/themes";
 import { ApiError, api, blobToImage, errorMessage, uploadImage } from "../lib/api";
+import type { Conversation } from "../lib/chat";
 import { localUid } from "../lib/ids";
 import {
   MODES,
@@ -39,7 +51,7 @@ import { useFriends } from "./Friends";
 import { ModeDiagram } from "./Together";
 
 export function ProjectPage({ id }: { id: number }) {
-  const { user, toast, store, refreshInbox, recipe: grownRecipe, hasFlower } = useSession();
+  const { user, toast, store, refreshInbox, recipe: grownRecipe, hasFlower, sendWs, subscribeWs } = useSession();
   const studioRecipe = hasFlower ? grownRecipe : null;
   const { navigate } = useRouter();
   const [project, setProject] = useState<Project | null>(null);
@@ -53,15 +65,23 @@ export function ProjectPage({ id }: { id: number }) {
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState<Blob | null>(null);
   const [theme, setTheme] = useState<ThemeSettings | null>(null);
+
+  const [onlinePeers, setOnlinePeers] = useState<string[]>([]);
+  const [partnerDraft, setPartnerDraft] = useState<{ name: string; recipe: FlowerRecipe } | null>(null);
+  const [sessionChat, setSessionChat] = useState<Conversation | null>(null);
+  const [rightTab, setRightTab] = useState<"part" | "chat">("part");
+
   const fileInput = useRef<HTMLInputElement>(null);
   const uploadFor = useRef<number>(0);
   const previewCanvas = useRef<HTMLCanvasElement>(null);
+  const draftClearTimer = useRef<number>(0);
   const { data: friends } = useFriends();
 
   useNavigationGuard(dirty, "Your part has unsaved changes. Leave anyway?");
 
   const applyProject = useCallback((next: Project, resetDrafts: boolean) => {
     setProject(next);
+    if (next.online) setOnlinePeers(next.online);
     if (next.my_status === "active") {
       setTheme((t) => (t && !resetDrafts ? t : projectTheme(next)));
       if (resetDrafts) {
@@ -94,34 +114,67 @@ export function ProjectPage({ id }: { id: number }) {
     [id, applyProject],
   );
 
+  const loadChat = useCallback(() => {
+    if (!user) return;
+    api<Conversation>(`/api/projects/${id}/chat`)
+      .then(setSessionChat)
+      .catch(() => setSessionChat(null));
+  }, [id, user]);
+
   useEffect(() => {
     if (user) void load(true);
   }, [user, load]);
 
-  // Asynchronous collaboration: pick up the other person's changes now and then.
+  useEffect(() => {
+    if (user && project?.my_status === "active") {
+      loadChat();
+    }
+  }, [user, project?.my_status, loadChat]);
+
+  // Real-time WebSocket synchronization for project:{id}
   useEffect(() => {
     if (!user || project?.my_status !== "active") return;
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        fetchProject(id)
-          .then((next) => {
-            setProject((current) => {
-              if (current && next.updated_at !== current.updated_at) {
-                const other = next.contributions?.find((c) => !c.is_you);
-                const before = current.contributions?.find((c) => !c.is_you);
-                if (other && other.updated_at !== before?.updated_at) toast(`${other.display_name} updated their part.`);
-              }
-              return next;
-            });
-            setTheme((t) => (JSON.stringify(t) === JSON.stringify(projectTheme(next)) ? t : projectTheme(next)));
-          })
-          .catch(() => undefined);
-      }
-    }, 10000);
-    return () => window.clearInterval(timer);
-  }, [user, project?.my_status, id, toast]);
+    const channel = `project:${id}`;
+    sendWs({ type: "subscribe", channel });
 
-  // Load everyone's photos (private, fetched with your session).
+    const unsub = subscribeWs((ev) => {
+      if (ev.type === "ready") {
+        sendWs({ type: "subscribe", channel });
+        void load(false);
+        return;
+      }
+      if (ev.channel !== channel && Number(ev.project_id) !== id) return;
+
+      if (ev.type === "project.presence" && Array.isArray(ev.online)) {
+        setOnlinePeers(ev.online.map(String));
+      } else if (ev.type === "project.draft" && ev.bloom_id !== user.bloom_id && ev.recipe) {
+        setPartnerDraft({ name: String(ev.display_name ?? "Partner"), recipe: normalizeRecipe(ev.recipe) });
+        window.clearTimeout(draftClearTimer.current);
+        draftClearTimer.current = window.setTimeout(() => setPartnerDraft(null), 4000);
+      } else if (ev.type === "project.updated" || ev.type === "project.member") {
+        if (ev.by !== user.bloom_id) {
+          setPartnerDraft(null);
+          void fetchProject(id)
+            .then((next) => {
+              setProject(next);
+              setTheme(projectTheme(next));
+              if (ev.type === "project.member") loadChat();
+            })
+            .catch(() => undefined);
+        }
+      } else if (ev.type === "project.closed") {
+        toast("This project was closed.");
+        navigate("/together");
+      }
+    });
+
+    return () => {
+      unsub();
+      window.clearTimeout(draftClearTimer.current);
+      sendWs({ type: "unsubscribe", channel });
+    };
+  }, [user, project?.my_status, id, sendWs, subscribeWs, load, loadChat, navigate, toast]);
+
   useEffect(() => {
     const ids = new Set<number>();
     project?.contributions?.forEach((c) => c.items.forEach((i) => i.media_id && i.media_url && ids.add(i.media_id)));
@@ -134,7 +187,6 @@ export function ProjectPage({ id }: { id: number }) {
     });
   }, [project, images]);
 
-  // My drafts that point at saved photos get their image once it loads.
   useEffect(() => {
     if (!drafts) return;
     if (drafts.some((d) => d.mediaId && !d.image && images.has(d.mediaId))) {
@@ -143,18 +195,24 @@ export function ProjectPage({ id }: { id: number }) {
   }, [images, drafts]);
 
   const layout: LayoutId = (project?.layout as LayoutId) ?? "side-by-side";
-  const items = useMemo(() => (project && project.my_status === "active" ? compositionItems(project, images, drafts) : []), [project, images, drafts]);
+  const effectiveProject = useMemo(() => {
+    if (!project || project.mode !== "twin" || !partnerDraft) return project;
+    return { ...project, shared_recipe: partnerDraft.recipe };
+  }, [project, partnerDraft]);
+
+  const items = useMemo(
+    () => (effectiveProject && effectiveProject.my_status === "active" ? compositionItems(effectiveProject, images, drafts) : []),
+    [effectiveProject, images, drafts],
+  );
   const spec = useMemo(() => layoutSpec(layout, items.length), [layout, items.length]);
   const composed = useMemo(() => (items.length ? renderComposition(layout, items, 0.5) : null), [layout, items]);
 
-  // The theme thumbnails use a calmer copy of the picture (not every drag step).
   const [gallerySource, setGallerySource] = useState<HTMLCanvasElement | null>(null);
   useEffect(() => {
     const timer = window.setTimeout(() => setGallerySource(composed), 700);
     return () => window.clearTimeout(timer);
   }, [composed]);
 
-  // Themed preview (debounced: the theme pass takes a moment).
   useEffect(() => {
     if (!composed || !theme) return;
     const timer = window.setTimeout(() => {
@@ -204,7 +262,7 @@ export function ProjectPage({ id }: { id: number }) {
           <h1>{project.title}</h1>
           <p className="muted">
             {project.owner.display_name} would like to make this with you. {modeInfo.text} Once you join, you'll see each
-            other's photos for this project only.
+            other's photos and session chat for this project.
           </p>
           <div className="btn-row">
             <button
@@ -214,6 +272,7 @@ export function ProjectPage({ id }: { id: number }) {
                 try {
                   applyProject(await api<Project>(`/api/projects/${id}/accept`, { method: "POST" }), true);
                   refreshInbox();
+                  loadChat();
                 } catch (e) {
                   toast(errorMessage(e), "error");
                 }
@@ -242,12 +301,13 @@ export function ProjectPage({ id }: { id: number }) {
     );
   }
 
-  const shared = sharedRecipe(project);
+  const shared = sharedRecipe(effectiveProject ?? project);
   const myDrafts = drafts ?? [];
   const maxItems = modeInfo.max;
   const members = project.members ?? [];
   const others = members.filter((m) => !m.is_you);
-  // Index of my first picture in the layout (people are laid out in member order).
+  const partnerOnline = others.some((m) => onlinePeers.includes(m.bloom_id));
+
   let myFirstIndex = 0;
   for (const m of members.filter((mm) => mm.status === "active")) {
     if (m.is_you) break;
@@ -258,15 +318,28 @@ export function ProjectPage({ id }: { id: number }) {
 
   const patchProject = async (body: Record<string, unknown>) => {
     try {
-      const next = await api<Project>(`/api/projects/${id}`, { method: "PATCH", body });
+      const next = await api<Project>(`/api/projects/${id}`, {
+        method: "PATCH",
+        body: { ...body, expected_version: project.version },
+      });
       setProject(next);
     } catch (e) {
-      toast(errorMessage(e), "error");
+      if (e instanceof ApiError && e.status === 409) {
+        toast("Synced with your partner's latest update.");
+        await load(false);
+      } else {
+        toast(errorMessage(e), "error");
+      }
     }
   };
 
-  const updateDraft = (index: number, patch: Partial<DraftItem>) => {
-    setDrafts((list) => list!.map((d, i) => (i === index ? { ...d, ...patch } : d)));
+  const broadcastTwinDraft = (recipe: FlowerRecipe) => {
+    setProject((p) => (p ? { ...p, shared_recipe: recipe } : p));
+    sendWs({ type: "project.draft", channel: `project:${id}`, recipe });
+  };
+
+  const updateDraft = (index: number, patchItem: Partial<DraftItem>) => {
+    setDrafts((list) => list!.map((d, i) => (i === index ? { ...d, ...patchItem } : d)));
     setDirty(true);
   };
 
@@ -321,7 +394,7 @@ export function ProjectPage({ id }: { id: number }) {
       setProject(next);
       setDrafts(uploaded);
       setDirty(false);
-      toast(others.length ? `Saved. ${others[0].display_name} will see your part next time they open the project.` : "Saved.");
+      toast(others.length ? `Saved & synced with ${others[0].display_name}.` : "Saved.");
     } catch (e) {
       toast(errorMessage(e), "error");
     } finally {
@@ -368,7 +441,7 @@ export function ProjectPage({ id }: { id: number }) {
               {m.display_name} {m.is_you && <span className="muted small">(you)</span>}
             </strong>
             <span className="muted small">
-              {m.role === "owner" ? "started this" : m.status === "invited" ? "invited, hasn't joined yet" : "joined"}
+              {m.role === "owner" ? "started this" : m.status === "invited" ? "invited, hasn't joined yet" : onlinePeers.includes(m.bloom_id) ? "here now" : "joined"}
             </span>
           </div>
           {project.is_owner && !m.is_you && (
@@ -376,7 +449,7 @@ export function ProjectPage({ id }: { id: number }) {
               type="button"
               className="btn small quiet danger"
               onClick={async () => {
-                if (!window.confirm(`Remove ${m.display_name}? They'll lose access, and their photos leave this project.`)) return;
+                if (!window.confirm(`Remove ${m.display_name}? They'll lose access to the project & session chat.`)) return;
                 try {
                   await api(`/api/projects/${id}/members/${encodeURIComponent(m.bloom_id)}`, { method: "DELETE" });
                   await load(false);
@@ -460,11 +533,14 @@ export function ProjectPage({ id }: { id: number }) {
       <div className="page-head">
         <div>
           <p className="eyebrow">
-            04 · Together · {modeInfo.name} · updated {formatDate(project.updated_at)}
+            04 · Together 2.0 · {modeInfo.name} · v{project.version ?? 1} · updated {formatDate(project.updated_at)}
           </p>
           <h1>{project.title}</h1>
         </div>
         <div className="btn-row">
+          <span className={`status-pill ${partnerOnline ? "live" : "ok"}`}>
+            <span className="dot" /> {partnerOnline ? "BOTH HERE · LIVE SYNC" : "SYNCED"}
+          </span>
           <button type="button" className="btn primary" onClick={() => void saveMyPart()} disabled={!dirty || saving}>
             {saving && <span className="spinner" />} Save my part
           </button>
@@ -473,6 +549,12 @@ export function ProjectPage({ id }: { id: number }) {
           </button>
         </div>
       </div>
+
+      {partnerDraft && (
+        <p className="notice" style={{ marginBottom: 16 }}>
+          {partnerDraft.name} is updating the shared flower…
+        </p>
+      )}
 
       <div className="together">
         <div className="stack">
@@ -536,8 +618,22 @@ export function ProjectPage({ id }: { id: number }) {
               <div className="sheet-section">
                 <header>
                   <h3>The flower you both hold</h3>
-                  <span className="eyebrow">shared</span>
+                  <span className="eyebrow">synced live</span>
                 </header>
+                {shared && (
+                  <div className="stack">
+                    <WordField recipe={shared} onChange={broadcastTwinDraft} />
+                    <Paints recipe={shared} onChange={broadcastTwinDraft} />
+                    <button
+                      type="button"
+                      className="btn small primary"
+                      style={{ justifySelf: "start" }}
+                      onClick={() => void patchProject({ shared_recipe: shared })}
+                    >
+                      Save shared flower changes
+                    </button>
+                  </div>
+                )}
                 <RecipePicker value={shared} onChange={(recipe) => void patchProject({ shared_recipe: recipe })} />
               </div>
             )}
@@ -545,116 +641,150 @@ export function ProjectPage({ id }: { id: number }) {
         </div>
 
         <aside className="sheet">
-          <section className="sheet-section">
-            <header>
-              <h3>Your part</h3>
-              <span className="eyebrow">{dirty ? "unsaved" : "saved"}</span>
-            </header>
-            {myDrafts.length > 1 && (
-              <div className="chips">
-                {myDrafts.map((d, i) => (
-                  <button key={d.key} type="button" className="chip" aria-pressed={selected === i} onClick={() => setSelected(i)}>
-                    Picture {i + 1}
-                  </button>
-                ))}
-              </div>
-            )}
-            {current ? (
-              <div className="slot-editor">
-                <SlotEditor
-                  image={current.image}
-                  recipe={currentRecipe}
-                  photo={current.photo}
-                  flower={current.flower}
-                  aspect={slotFor(selected).w / slotFor(selected).h}
-                  onPhoto={(photo) => updateDraft(selected, { photo })}
-                  onFlower={(flower) => updateDraft(selected, { flower })}
-                />
-                <div className="btn-row">
-                  <button type="button" className="btn small" onClick={() => setCapturing(selected)}>
-                    <IconCamera /> {current.image ? "Retake" : "Take photo"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn small quiet"
-                    onClick={() => {
-                      uploadFor.current = selected;
-                      fileInput.current?.click();
-                    }}
-                  >
-                    <IconUpload /> Upload
-                  </button>
-                  <button
-                    type="button"
-                    className="btn small quiet danger"
-                    onClick={() => {
-                      setDrafts((list) => list!.filter((_, i) => i !== selected));
-                      setSelected(0);
-                      setDirty(true);
-                    }}
-                  >
-                    <IconTrash /> Remove
-                  </button>
-                </div>
-                {currentRecipe && <OverlayControls value={current.flower} onChange={(flower) => updateDraft(selected, { flower })} />}
-                {project.mode !== "twin" && (
-                  <div className="stack tight">
-                    <span className="label">Your flower</span>
-                    <RecipePicker value={current.recipe} onChange={(recipe) => updateDraft(selected, { recipe })} />
-                    {current.recipe && (
-                      <button type="button" className="btn small quiet" style={{ justifySelf: "start" }} onClick={() => updateDraft(selected, { recipe: null })}>
-                        No flower on this picture
+          <div className="sheet-section">
+            <div className="segmented" role="group" aria-label="Workspace panel">
+              <button type="button" aria-pressed={rightTab === "part"} onClick={() => setRightTab("part")}>
+                Your part &amp; people
+              </button>
+              <button type="button" aria-pressed={rightTab === "chat"} onClick={() => setRightTab("chat")}>
+                <IconChat width={14} height={14} /> Session chat
+                {sessionChat && sessionChat.unread_count > 0 ? ` (${sessionChat.unread_count})` : ""}
+              </button>
+            </div>
+          </div>
+
+          {rightTab === "chat" ? (
+            <div className="together-chat-box">
+              {sessionChat ? (
+                <ChatView conversation={sessionChat} onUpdated={loadChat} />
+              ) : (
+                <Loading label="Opening session chat" />
+              )}
+            </div>
+          ) : (
+            <>
+              <section className="sheet-section">
+                <header>
+                  <h3>Your part</h3>
+                  <span className="eyebrow">{dirty ? "unsaved" : "saved"}</span>
+                </header>
+                {myDrafts.length > 1 && (
+                  <div className="chips">
+                    {myDrafts.map((d, i) => (
+                      <button key={d.key} type="button" className="chip" aria-pressed={selected === i} onClick={() => setSelected(i)}>
+                        Picture {i + 1}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {current ? (
+                  <div className="slot-editor">
+                    <SlotEditor
+                      image={current.image}
+                      recipe={currentRecipe}
+                      photo={current.photo}
+                      flower={current.flower}
+                      aspect={slotFor(selected).w / slotFor(selected).h}
+                      onPhoto={(photo) => updateDraft(selected, { photo })}
+                      onFlower={(flower) => updateDraft(selected, { flower })}
+                    />
+                    <div className="btn-row">
+                      <button type="button" className="btn small" onClick={() => setCapturing(selected)}>
+                        <IconCamera /> {current.image ? "Retake" : "Take photo"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn small quiet"
+                        onClick={() => {
+                          uploadFor.current = selected;
+                          fileInput.current?.click();
+                        }}
+                      >
+                        <IconUpload /> Upload
+                      </button>
+                      <button
+                        type="button"
+                        className="btn small quiet danger"
+                        onClick={() => {
+                          setDrafts((list) => list!.filter((_, i) => i !== selected));
+                          setSelected(0);
+                          setDirty(true);
+                        }}
+                      >
+                        <IconTrash /> Remove
+                      </button>
+                    </div>
+                    {currentRecipe && <OverlayControls value={current.flower} onChange={(flower) => updateDraft(selected, { flower })} />}
+                    {project.mode !== "twin" && (
+                      <div className="stack tight">
+                        <span className="label">Your flower</span>
+                        <RecipePicker value={current.recipe} onChange={(recipe) => updateDraft(selected, { recipe })} />
+                        {current.recipe && (
+                          <button type="button" className="btn small quiet" style={{ justifySelf: "start" }} onClick={() => updateDraft(selected, { recipe: null })}>
+                            No flower on this picture
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="muted">Add your photo{project.mode === "moment" ? "s and flowers" : ""}. Your friend sees it once you save your part.</p>
+                )}
+                {myDrafts.length < maxItems && (
+                  <div className="btn-row">
+                    <button type="button" className="btn small" onClick={() => setCapturing(myDrafts.length)}>
+                      <IconCamera /> Take a photo
+                    </button>
+                    <button
+                      type="button"
+                      className="btn small quiet"
+                      onClick={() => {
+                        uploadFor.current = myDrafts.length;
+                        fileInput.current?.click();
+                      }}
+                    >
+                      <IconUpload /> Upload
+                    </button>
+                    {project.mode === "moment" && (
+                      <button type="button" className="btn small quiet" onClick={() => addDraft(null)}>
+                        <IconPlus /> Flower only
                       </button>
                     )}
                   </div>
                 )}
-              </div>
-            ) : (
-              <p className="muted">Add your photo{project.mode === "moment" ? "s and flowers" : ""}. Your friend sees it once you save your part.</p>
-            )}
-            {myDrafts.length < maxItems && (
-              <div className="btn-row">
-                <button type="button" className="btn small" onClick={() => setCapturing(myDrafts.length)}>
-                  <IconCamera /> Take a photo
-                </button>
-                <button
-                  type="button"
-                  className="btn small quiet"
-                  onClick={() => {
-                    uploadFor.current = myDrafts.length;
-                    fileInput.current?.click();
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  hidden
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    void onUpload(file);
                   }}
-                >
-                  <IconUpload /> Upload
-                </button>
-                {project.mode === "moment" && (
-                  <button type="button" className="btn small quiet" onClick={() => addDraft(null)}>
-                    <IconPlus /> Flower only
-                  </button>
-                )}
-              </div>
-            )}
-            <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; void onUpload(file); }} />
-          </section>
-          <section className="sheet-section">
-            <header>
-              <h3>Their part</h3>
-            </header>
-            {others.length === 0 && <p className="muted small">Nobody else yet. Invite a friend below.</p>}
-            {others.map((m) => {
-              const c = project.contributions?.find((cc) => cc.bloom_id === m.bloom_id);
-              return (
-                <p key={m.bloom_id} className="muted small">
-                  {m.status === "invited"
-                    ? `${m.display_name} hasn't accepted the invitation yet.`
-                    : c && c.items.length
-                      ? `${m.display_name} added ${c.items.length} picture${c.items.length > 1 ? "s" : ""} · ${formatDate(c.updated_at)}`
-                      : `Waiting for ${m.display_name}'s photo.`}
-                </p>
-              );
-            })}
-          </section>
-          {membersPanel}
+                />
+              </section>
+              <section className="sheet-section">
+                <header>
+                  <h3>Their part</h3>
+                </header>
+                {others.length === 0 && <p className="muted small">Nobody else yet. Invite a friend below.</p>}
+                {others.map((m) => {
+                  const c = project.contributions?.find((cc) => cc.bloom_id === m.bloom_id);
+                  return (
+                    <p key={m.bloom_id} className="muted small">
+                      {m.status === "invited"
+                        ? `${m.display_name} hasn't accepted the invitation yet.`
+                        : c && c.items.length
+                          ? `${m.display_name} added ${c.items.length} picture${c.items.length > 1 ? "s" : ""} · ${formatDate(c.updated_at)}`
+                          : `Waiting for ${m.display_name}'s photo.`}
+                    </p>
+                  );
+                })}
+              </section>
+              {membersPanel}
+            </>
+          )}
         </aside>
       </div>
 

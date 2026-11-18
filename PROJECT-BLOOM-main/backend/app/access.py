@@ -18,6 +18,7 @@ from .models import (
     Message,
     Project,
     ProjectMember,
+    Sticker,
     User,
 )
 from .schemas import PrivacySettings
@@ -186,12 +187,29 @@ def can_view_media(db: Session, media: Media, user: User) -> bool:
     entries = db.scalars(
         select(JournalEntry).where(
             JournalEntry.photo_media_id == media.id,
+            JournalEntry.deleted_at.is_(None),
             JournalEntry.visibility.in_(["public", "friends"]),
         )
     ).all()
     for entry in entries:
         if visibility_allows(db, entry.owner_id, entry.visibility, user):
             return True
+
+    if media.kind != "original":
+        scrapbooks = db.scalars(
+            select(JournalEntry).where(
+                JournalEntry.owner_id == media.owner_id,
+                JournalEntry.deleted_at.is_(None),
+                JournalEntry.scrapbook_doc.is_not(None),
+                JournalEntry.visibility.in_(["public", "friends"]),
+            )
+        ).all()
+        for sb in scrapbooks:
+            if not visibility_allows(db, sb.owner_id, sb.visibility, user):
+                continue
+            elems = (sb.scrapbook_doc or {}).get("elements") or []
+            if any(isinstance(el, dict) and el.get("mediaId") == media.id for el in elems):
+                return True
 
     return False
 
@@ -205,6 +223,14 @@ def release_media(db: Session, media_id: int | None, doomed: list[str]) -> None:
     used_as_avatar = db.scalar(select(User.id).where(User.avatar_media_id == media_id))
     used_in_conv = db.scalar(select(Conversation.id).where(Conversation.avatar_media_id == media_id))
     used_in_msg = db.scalar(select(Message.id).where(Message.media_id == media_id, Message.deleted_at.is_(None)))
+    used_in_sticker = db.scalar(select(Sticker.id).where(Sticker.media_id == media_id))
+    used_in_scrapbook = any(
+        isinstance(el, dict) and el.get("mediaId") == media_id
+        for je in db.scalars(
+            select(JournalEntry).where(JournalEntry.owner_id == media.owner_id, JournalEntry.scrapbook_doc.is_not(None))
+        )
+        for el in ((je.scrapbook_doc or {}).get("elements") or [])
+    )
     still_used = db.scalar(
         select(JournalEntry.id).where(
             or_(JournalEntry.photo_media_id == media_id, JournalEntry.original_media_id == media_id)
@@ -216,7 +242,7 @@ def release_media(db: Session, media_id: int | None, doomed: list[str]) -> None:
         for contribution in db.scalars(select(Contribution).where(Contribution.user_id == media.owner_id))
         for item in contribution.items or []
     )
-    if used_as_avatar or used_in_conv or used_in_msg or still_used or in_capture or in_contribution:
+    if used_as_avatar or used_in_conv or used_in_msg or used_in_sticker or used_in_scrapbook or still_used or in_capture or in_contribution:
         return
     doomed.append(media.storage_key)
     db.delete(media)

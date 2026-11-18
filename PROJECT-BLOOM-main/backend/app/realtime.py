@@ -2,7 +2,7 @@
 Shared WebSocket hub for Bloom 2.0 real-time features:
 - Authenticated user sockets (notifications, chat message/unread events)
 - Verified channel subscriptions (conv:{id}, project:{id})
-- Typing indicators and privacy-respecting online presence
+- Typing indicators, live Twin Bloom draft sync, project presence & online status
 """
 
 from __future__ import annotations
@@ -47,6 +47,7 @@ class ConnectionHub:
         self._user_sockets: dict[int, set[WebSocket]] = defaultdict(set)
         self._channels: dict[str, set[WebSocket]] = defaultdict(set)
         self._socket_channels: dict[WebSocket, set[str]] = defaultdict(set)
+        self._socket_bloom: dict[WebSocket, str] = {}
         self._lock = asyncio.Lock()
 
     def is_online(self, user_id: int) -> bool:
@@ -58,9 +59,13 @@ class ConnectionHub:
     def has_channel_subscribers(self, channel: str) -> bool:
         return bool(self._channels.get(channel))
 
-    async def connect(self, user_id: int, socket: WebSocket) -> None:
+    def channel_bloom_ids(self, channel: str) -> list[str]:
+        return sorted({self._socket_bloom[s] for s in self._channels.get(channel, ()) if s in self._socket_bloom})
+
+    async def connect(self, user_id: int, bloom_id: str, socket: WebSocket) -> None:
         async with self._lock:
             self._user_sockets[user_id].add(socket)
+            self._socket_bloom[socket] = bloom_id
 
     async def disconnect(self, user_id: int, socket: WebSocket) -> list[str]:
         async with self._lock:
@@ -69,6 +74,7 @@ class ConnectionHub:
                 sockets.discard(socket)
                 if not sockets:
                     del self._user_sockets[user_id]
+            self._socket_bloom.pop(socket, None)
             channels = list(self._socket_channels.pop(socket, ()))
             for ch in channels:
                 members = self._channels.get(ch)
@@ -217,6 +223,14 @@ def _visible_online_bloom_ids(viewer_id: int, bloom_ids: list[str]) -> list[str]
         return online
 
 
+async def _emit_project_presence(channel: str) -> None:
+    if channel.startswith("project:"):
+        await connection_hub.broadcast_channel(
+            channel,
+            {"type": "project.presence", "channel": channel, "online": connection_hub.channel_bloom_ids(channel)},
+        )
+
+
 @router.websocket("/api/ws")
 async def user_socket(websocket: WebSocket) -> None:
     if not ws_origin_allowed(websocket):
@@ -228,7 +242,7 @@ async def user_socket(websocket: WebSocket) -> None:
         return
     user_id, bloom_id, display_name = auth
     await websocket.accept()
-    await connection_hub.connect(user_id, websocket)
+    await connection_hub.connect(user_id, bloom_id, websocket)
     await connection_hub.send_socket(websocket, {"type": "ready", "bloom_id": bloom_id})
     try:
         while True:
@@ -249,11 +263,13 @@ async def user_socket(websocket: WebSocket) -> None:
                 if await run_in_threadpool(_can_join_channel, user_id, channel):
                     await connection_hub.subscribe(channel, websocket)
                     await connection_hub.send_socket(websocket, {"type": "subscribed", "channel": channel})
+                    await _emit_project_presence(channel)
                 else:
                     await connection_hub.send_socket(websocket, {"type": "error", "detail": "Not allowed in that channel."})
             elif kind == "unsubscribe":
                 channel = str(msg.get("channel", ""))[:40]
                 await connection_hub.unsubscribe(channel, websocket)
+                await _emit_project_presence(channel)
             elif kind == "typing":
                 channel = str(msg.get("channel", ""))[:40]
                 if await run_in_threadpool(_can_join_channel, user_id, channel):
@@ -268,6 +284,20 @@ async def user_socket(websocket: WebSocket) -> None:
                         },
                         exclude=websocket,
                     )
+            elif kind == "project.draft":
+                channel = str(msg.get("channel", ""))[:40]
+                if channel.startswith("project:") and await run_in_threadpool(_can_join_channel, user_id, channel):
+                    await connection_hub.broadcast_channel(
+                        channel,
+                        {
+                            "type": "project.draft",
+                            "channel": channel,
+                            "bloom_id": bloom_id,
+                            "display_name": display_name,
+                            "recipe": msg.get("recipe"),
+                        },
+                        exclude=websocket,
+                    )
             elif kind == "presence":
                 ids = msg.get("bloom_ids")
                 if isinstance(ids, list):
@@ -278,4 +308,6 @@ async def user_socket(websocket: WebSocket) -> None:
     except Exception:  # pragma: no cover
         log.exception("realtime socket error")
     finally:
-        await connection_hub.disconnect(user_id, websocket)
+        left_channels = await connection_hub.disconnect(user_id, websocket)
+        for ch in left_channels:
+            await _emit_project_presence(ch)
