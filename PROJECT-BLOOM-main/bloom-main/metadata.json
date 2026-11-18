@@ -1,0 +1,5 @@
+{
+  "name": "Bloom",
+  "description": "Grow flowers from words, photograph them with vintage camera looks, create scrapbook memories, and share in real-time chat, Together projects, and Live Bloom rooms.",
+  "requestFramePermissions": ["camera", "microphone"]
+}
