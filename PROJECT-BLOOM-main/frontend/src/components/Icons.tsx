@@ -255,6 +255,12 @@ export const IconUsers = (p: IconProps) => (
   </Svg>
 );
 
+export const IconMenu = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 7h16M4 12h16M4 17h16" />
+  </Svg>
+);
+
 export function BloomMark(p: IconProps) {
   return (
     <svg viewBox="0 0 40 40" aria-hidden="true" {...p}>

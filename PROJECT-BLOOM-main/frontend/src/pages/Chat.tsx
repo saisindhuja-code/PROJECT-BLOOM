@@ -11,9 +11,18 @@ import { useFriends } from "./Friends";
 
 export function ChatPage({ conversationId }: { conversationId?: string }) {
   const { user, toast } = useSession();
-  const { navigate } = useRouter();
+  const { navigate, query: urlQuery } = useRouter();
   const { data: friendsData } = useFriends();
-  const [kindFilter, setKindFilter] = useState<ChatKind | "all">("all");
+  const tabParam = urlQuery.get("tab");
+  const initialKind: ChatKind | "all" =
+    tabParam === "dm" || tabParam === "group" || tabParam === "studio" ? tabParam : "all";
+  const [kindFilter, setKindFilter] = useState<ChatKind | "all">(initialKind);
+
+  useEffect(() => {
+    if (tabParam === "dm" || tabParam === "group" || tabParam === "studio") {
+      setKindFilter(tabParam);
+    }
+  }, [tabParam]);
   const [query, setQuery] = useState("");
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);

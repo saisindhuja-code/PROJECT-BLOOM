@@ -1,7 +1,19 @@
-import { useState, type ReactNode } from "react";
-import { BloomMark, IconBell, IconCamera, IconChat, IconFlower, IconInbox, IconJournal, IconLive, IconTogether, IconUser } from "./components/Icons";
-import { Loading, Modal, Toasts } from "./components/ui";
-import { errorMessage } from "./lib/api";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  BloomMark,
+  IconBell,
+  IconCamera,
+  IconChat,
+  IconFlower,
+  IconInbox,
+  IconJournal,
+  IconLive,
+  IconMenu,
+  IconTogether,
+  IconUsers,
+} from "./components/Icons";
+import { Avatar, Loading, Modal, Toasts } from "./components/ui";
+import { api, errorMessage } from "./lib/api";
 import { Link, RouterProvider, matchPath, useRouter } from "./lib/router";
 import { SessionProvider, useSession } from "./lib/session";
 import { AccountPage } from "./pages/Account";
@@ -20,12 +32,11 @@ import { ProfilePage } from "./pages/Profile";
 import { ProjectPage } from "./pages/Project";
 import { ScrapbookEditorPage } from "./pages/ScrapbookEditor";
 import { StudioPage } from "./pages/Studio";
-import { TogetherPage } from "./pages/Together";
 import { ThemesPage } from "./pages/Themes";
+import { TogetherPage } from "./pages/Together";
 import { ThemeDecor } from "./theme/ThemeDecor";
 import { ThemeMenu } from "./theme/ThemeMenu";
 import { ThemeProvider } from "./theme/ThemeProvider";
-import { api } from "./lib/api";
 
 const NAV = [
   { to: "/studio", label: "Studio", num: "01", icon: IconFlower },
@@ -33,6 +44,16 @@ const NAV = [
   { to: "/journal", label: "Journal", num: "03", icon: IconJournal },
   { to: "/together", label: "Together", num: "04", icon: IconTogether },
   { to: "/live", label: "Live", num: "05", icon: IconLive },
+  { to: "/chat", label: "Chat", num: "06", icon: IconChat },
+  { to: "/friends", label: "Friends", num: "07", icon: IconUsers },
+];
+
+const TABBAR_NAV = [
+  { to: "/studio", label: "Studio", icon: IconFlower },
+  { to: "/cam", label: "Cam", icon: IconCamera },
+  { to: "/journal", label: "Journal", icon: IconJournal },
+  { to: "/together", label: "Together", icon: IconTogether },
+  { to: "/chat", label: "Chat", icon: IconChat },
 ];
 
 const ROUTES: Array<{ path: string; render: (params: Record<string, string>) => ReactNode }> = [
@@ -44,10 +65,10 @@ const ROUTES: Array<{ path: string; render: (params: Record<string, string>) => 
   { path: "/scrapbook", render: () => <ScrapbookEditorPage /> },
   { path: "/scrapbook/:id", render: (p) => <ScrapbookEditorPage id={p.id} /> },
   { path: "/friends", render: () => <FriendsPage /> },
-  { path: "/chat", render: () => <ChatPage /> },
-  { path: "/chat/:id", render: (p) => <ChatPage conversationId={p.id} /> },
   { path: "/activity", render: () => <ActivityPage /> },
   { path: "/notifications", render: () => <NotificationsPage /> },
+  { path: "/chat", render: () => <ChatPage /> },
+  { path: "/chat/:id", render: (p) => <ChatPage conversationId={p.id} /> },
   { path: "/together", render: () => <TogetherPage /> },
   { path: "/together/:id", render: (p) => <ProjectPage id={Number(p.id)} /> },
   { path: "/live", render: () => <LivePage /> },
@@ -63,7 +84,6 @@ const ROUTES: Array<{ path: string; render: (params: Record<string, string>) => 
 function Routes() {
   const { path } = useRouter();
   const { ready } = useSession();
-  // Wait for the sign-in check so pages don't briefly read the wrong storage.
   if (!ready) {
     return (
       <main className="page">
@@ -169,10 +189,34 @@ function InboxDialog({ onClose }: { onClose: () => void }) {
 }
 
 function Shell() {
-  const { path } = useRouter();
-  const { user, inbox, unreadNotifications, unreadChat, serverOnline, deviceMode, ready } = useSession();
+  const { path, navigate } = useRouter();
+  const { user, inbox, unreadNotifications, unreadChat, serverOnline, deviceMode, ready, signOut } = useSession();
   const [inboxOpen, setInboxOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
   const isActive = (to: string) => path === to || path.startsWith(`${to}/`);
+
+  useEffect(() => {
+    setUserMenuOpen(false);
+    setMobileMenuOpen(false);
+  }, [path]);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const close = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !userMenuRef.current?.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [userMenuOpen]);
 
   return (
     <>
@@ -193,6 +237,7 @@ function Shell() {
             <Link key={item.to} to={item.to} className={isActive(item.to) ? "active" : ""}>
               <span className="num">{item.num}</span>
               {item.label}
+              {item.to === "/chat" && unreadChat > 0 && <span className="nav-dot-badge">{unreadChat}</span>}
             </Link>
           ))}
         </nav>
@@ -210,44 +255,102 @@ function Shell() {
           )}
           {user && (
             <>
-              <Link to="/chat" className="btn icon quiet inbox-button" aria-label={`Chat, ${unreadChat} unread`}>
-                <IconChat />
-                {unreadChat > 0 && <span className="badge">{unreadChat}</span>}
-              </Link>
               <Link to="/notifications" className="btn icon quiet inbox-button" aria-label={`Notifications, ${unreadNotifications} unread`}>
                 <IconBell />
                 {unreadNotifications > 0 && <span className="badge">{unreadNotifications}</span>}
               </Link>
-              <button type="button" className="btn icon quiet inbox-button" onClick={() => setInboxOpen(true)} aria-label={`Inbox, ${inbox?.count ?? 0} waiting`}>
+              <button type="button" className="btn icon quiet inbox-button optional-desktop" onClick={() => setInboxOpen(true)} aria-label={`Inbox, ${inbox?.count ?? 0} waiting`}>
                 <IconInbox />
                 {inbox && inbox.count > 0 && <span className="badge">{inbox.count}</span>}
               </button>
+              <div className="appearance" ref={userMenuRef}>
+                <button
+                  type="button"
+                  className="btn small quiet user-menu-trigger"
+                  aria-expanded={userMenuOpen}
+                  onClick={() => setUserMenuOpen((o) => !o)}
+                >
+                  <Avatar name={user.display_name} src={user.avatar_url} />
+                  <span className="optional-text">{user.display_name}</span>
+                </button>
+                {userMenuOpen && (
+                  <div className="appearance-menu user-dropdown" role="menu">
+                    <Link to={`/profile/${user.bloom_id}`} className="menu-item-link">My Profile</Link>
+                    <Link to="/account" className="menu-item-link">Account &amp; Settings</Link>
+                    <Link to="/scrapbook" className="menu-item-link">New Scrapbook Page</Link>
+                    <Link to="/activity" className="menu-item-link">Shared Feed</Link>
+                    <Link to="/chat?tab=studio" className="menu-item-link">Studio Chat</Link>
+                    <Link to="/themes" className="menu-item-link">Website Themes</Link>
+                    <div className="divider" />
+                    <button
+                      type="button"
+                      className="menu-item-link danger"
+                      onClick={async () => {
+                        setUserMenuOpen(false);
+                        await signOut();
+                        navigate("/");
+                      }}
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                )}
+              </div>
             </>
           )}
-          {user ? (
-            <Link to="/account" className="btn small quiet" aria-label="Your account">
-              <IconUser /> <span className="optional-text">{user.display_name}</span>
+          {!user && ready && serverOnline && (
+            <Link to="/signin" className="btn small">
+              Sign in
             </Link>
-          ) : (
-            ready &&
-            serverOnline && (
-              <Link to="/signin" className="btn small">
-                Sign in
-              </Link>
-            )
           )}
+          <button
+            type="button"
+            className="btn icon quiet mobile-menu-btn"
+            aria-label="Open navigation menu"
+            onClick={() => setMobileMenuOpen(true)}
+          >
+            <IconMenu />
+          </button>
         </div>
       </header>
       <Routes />
       <nav className="tabbar" aria-label="Main">
-        {NAV.map((item) => (
+        {TABBAR_NAV.map((item) => (
           <Link key={item.to} to={item.to} className={isActive(item.to) ? "active" : ""}>
-            <item.icon />
+            <span style={{ position: "relative", display: "inline-flex" }}>
+              <item.icon />
+              {item.to === "/chat" && unreadChat > 0 && <span className="tabbar-badge">{unreadChat}</span>}
+            </span>
             {item.label}
           </Link>
         ))}
       </nav>
       {inboxOpen && <InboxDialog onClose={() => setInboxOpen(false)} />}
+      {mobileMenuOpen && (
+        <Modal title="Bloom Navigation" onClose={() => setMobileMenuOpen(false)}>
+          <div className="mobile-nav-grid">
+            <Link to="/" className="menu-item-link">Home</Link>
+            <Link to="/studio" className="menu-item-link">Flower Studio</Link>
+            <Link to="/cam" className="menu-item-link">Bloom Cam</Link>
+            <Link to="/journal" className="menu-item-link">Journal</Link>
+            <Link to="/scrapbook" className="menu-item-link">Scrapbook Editor</Link>
+            <Link to="/together" className="menu-item-link">Bloom Together</Link>
+            <Link to="/live" className="menu-item-link">Live Bloom</Link>
+            <Link to="/chat?tab=dm" className="menu-item-link">Messages (Personal &amp; Groups)</Link>
+            <Link to="/chat?tab=studio" className="menu-item-link">Studio Chat</Link>
+            <Link to="/friends" className="menu-item-link">Friends</Link>
+            <Link to="/activity" className="menu-item-link">Shared Feed</Link>
+            <Link to="/notifications" className="menu-item-link">Notifications ({unreadNotifications})</Link>
+            {user && (
+              <>
+                <Link to={`/profile/${user.bloom_id}`} className="menu-item-link">My Profile</Link>
+                <Link to="/account" className="menu-item-link">Settings &amp; Privacy</Link>
+              </>
+            )}
+            <Link to="/themes" className="menu-item-link">Website Themes</Link>
+          </div>
+        </Modal>
+      )}
       <Toasts />
     </>
   );

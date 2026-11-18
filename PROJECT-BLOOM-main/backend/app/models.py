@@ -49,9 +49,6 @@ class FlowerDesign(Base):
     title: Mapped[str] = mapped_column(String(80))
     recipe: Mapped[dict[str, Any]] = mapped_column(JSON)
     visibility: Mapped[str] = mapped_column(String(12), default="private")
-    scrapbook_doc: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -104,6 +101,9 @@ class JournalEntry(Base):
     photo_media_id: Mapped[int | None] = mapped_column(ForeignKey("media.id", ondelete="SET NULL"), nullable=True)
     original_media_id: Mapped[int | None] = mapped_column(ForeignKey("media.id", ondelete="SET NULL"), nullable=True)
     edit_state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    scrapbook_doc: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
     participants: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
     visibility: Mapped[str] = mapped_column(String(12), default="private")
@@ -213,8 +213,6 @@ class LiveCapture(Base):
 
 
 class Follow(Base):
-    """One-way following relationship."""
-
     __tablename__ = "follows"
     __table_args__ = (UniqueConstraint("follower_id", "following_id", name="uq_follow_pair"),)
 
@@ -228,8 +226,6 @@ class Follow(Base):
 
 
 class Reaction(Base):
-    """One reaction per user on a shared flower design or journal entry."""
-
     __tablename__ = "reactions"
     __table_args__ = (
         UniqueConstraint("user_id", "target_type", "target_id", name="uq_reaction_user_target"),
@@ -238,15 +234,13 @@ class Reaction(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    target_type: Mapped[str] = mapped_column(String(16))  # design | entry
+    target_type: Mapped[str] = mapped_column(String(16))
     target_id: Mapped[int] = mapped_column(Integer)
-    kind: Mapped[str] = mapped_column(String(16))  # heart | bloom | sparkle | leaf
+    kind: Mapped[str] = mapped_column(String(16))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class Notification(Base):
-    """Persistent real-time notification."""
-
     __tablename__ = "notifications"
     __table_args__ = (Index("ix_notifications_user_read_created", "user_id", "is_read", "created_at"),)
 
@@ -263,13 +257,13 @@ class Notification(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     actor: Mapped[User | None] = relationship(foreign_keys=[actor_id], lazy="joined")
-class Conversation(Base):
-    """Unified conversation for Personal DMs, Group Chats, Studio Chat, and Bloom Together Chat."""
 
+
+class Conversation(Base):
     __tablename__ = "conversations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    kind: Mapped[str] = mapped_column(String(16), index=True)  # dm | group | studio | project
+    kind: Mapped[str] = mapped_column(String(16), index=True)
     title: Mapped[str] = mapped_column(String(80), default="")
     description: Mapped[str] = mapped_column(String(300), default="")
     avatar_media_id: Mapped[int | None] = mapped_column(ForeignKey("media.id", ondelete="SET NULL"), nullable=True)
@@ -293,7 +287,7 @@ class ConversationMember(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    role: Mapped[str] = mapped_column(String(12), default="member")  # owner | admin | member
+    role: Mapped[str] = mapped_column(String(12), default="member")
     last_read_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -309,7 +303,7 @@ class Message(Base):
     conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
     sender_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     reply_to_id: Mapped[int | None] = mapped_column(ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
-    kind: Mapped[str] = mapped_column(String(16), default="text")  # text | image | voice | sticker | shared
+    kind: Mapped[str] = mapped_column(String(16), default="text")
     body: Mapped[str] = mapped_column(Text, default="")
     media_id: Mapped[int | None] = mapped_column(ForeignKey("media.id", ondelete="SET NULL"), nullable=True, index=True)
     shared_ref: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
@@ -331,8 +325,6 @@ class MessageReaction(Base):
 
 
 class Sticker(Base):
-    """User-uploaded reusable sticker for scrapbook pages."""
-
     __tablename__ = "stickers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

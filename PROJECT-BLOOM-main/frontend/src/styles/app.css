@@ -2755,3 +2755,107 @@ input[type="range"]::-moz-range-thumb {
   background: var(--night);
   margin-top: 12px;
 }
+
+/* ---------------------------------------------------------------------
+   Phase 9 Navigation & Responsive Polish
+   --------------------------------------------------------------------- */
+
+.nav-dot-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--rose);
+  color: var(--on-accent);
+  font: 600 10px/1 var(--body);
+}
+
+.tabbar-badge {
+  position: absolute;
+  top: -4px;
+  right: -8px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--rose);
+  color: var(--on-accent);
+  font: 600 9px/15px var(--body);
+  text-align: center;
+}
+
+.user-menu-trigger {
+  padding: 2px 10px 2px 4px;
+  gap: 8px;
+}
+
+.user-menu-trigger .avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+}
+
+.user-dropdown {
+  width: 220px;
+  gap: 4px;
+  padding: 10px;
+}
+
+.menu-item-link {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius-s);
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  text-decoration: none;
+  font: 500 14px var(--body);
+  cursor: pointer;
+  text-align: left;
+}
+
+.menu-item-link:hover {
+  background: var(--plum-800);
+  color: var(--cream);
+}
+
+.menu-item-link.danger {
+  color: var(--danger);
+}
+
+.mobile-menu-btn {
+  display: none;
+}
+
+.mobile-nav-grid {
+  display: grid;
+  gap: 4px;
+}
+
+@media (max-width: 1120px) {
+  .app-header {
+    gap: 14px;
+    padding: 0 18px;
+  }
+  .main-nav a {
+    padding: 7px 9px;
+    font-size: 13px;
+  }
+  .main-nav a .num {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .mobile-menu-btn {
+    display: inline-flex;
+  }
+  .optional-text,
+  .optional-desktop {
+    display: none;
+  }
+}
