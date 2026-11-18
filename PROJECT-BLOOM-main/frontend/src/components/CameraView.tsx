@@ -1,8 +1,6 @@
 /**
- * Live camera with the flower floating on top.
- * - The camera starts only when you press "Start camera".
- * - The flower can be dragged, or follow your hand (MediaPipe, optional).
- * - "Upload a photo" works without any camera.
+ * Live camera with flower overlays, optional MediaPipe hand tracking,
+ * live filter preview, photo upload, and multi-shot burst for Photo Strip / Contact Sheet.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FlowerRecipe } from "../flower/recipe";
@@ -10,7 +8,7 @@ import { flowerSticker } from "../flower/render";
 import { captureFrame, cameraProblem, cameraSupported, hasMultipleCameras, startCamera, stopStream, type Facing } from "../cam/camera";
 import { handGeometry, placementFromHand, smoothPlacement } from "../cam/handPose";
 import { createHandTracker, type HandTracker } from "../cam/handTracker";
-import { drawFlowerOn, placementCorners, stemEnd, type FlowerPlacement } from "../imaging/compose";
+import { drawFlowerOn, placementCorners, stemEnd, type FlowerLayer, type FlowerPlacement } from "../imaging/compose";
 import { context2d, makeCanvas, renderThemed, toCanvas } from "../imaging/process";
 import { THEMES, defaultSettings, type ThemeSettings } from "../imaging/themes";
 import { blobToImage } from "../lib/api";
@@ -22,18 +20,23 @@ type HandStatus = "off" | "loading" | "searching" | "tracking" | "error";
 export function CameraView({
   recipe,
   placement,
+  extraLayers = [],
   onPlacement,
   onCapture,
+  shotCount = 1,
+  onMultiCapture,
   autoStart = false,
   theme,
   onTheme,
 }: {
   recipe: FlowerRecipe | null;
   placement: FlowerPlacement;
+  extraLayers?: FlowerLayer[];
   onPlacement: (next: FlowerPlacement, commit: boolean) => void;
   onCapture: (photo: HTMLCanvasElement, placement: FlowerPlacement, source: "camera" | "upload", theme: ThemeSettings) => void;
+  shotCount?: number;
+  onMultiCapture?: (frames: HTMLCanvasElement[], placement: FlowerPlacement, theme: ThemeSettings) => void;
   autoStart?: boolean;
-  /** Live digicam filter shown on the camera (optional). */
   theme?: ThemeSettings;
   onTheme?: (theme: ThemeSettings) => void;
 }) {
@@ -54,6 +57,7 @@ export function CameraView({
   const [aspect, setAspect] = useState(4 / 3);
   const [timer, setTimer] = useState(0);
   const [countdown, setCountdown] = useState(0);
+  const [burstProgress, setBurstProgress] = useState<string>("");
   const [flash, setFlash] = useState(0);
   const [hand, setHand] = useState<HandStatus>("off");
   const [handError, setHandError] = useState("");
@@ -62,6 +66,8 @@ export function CameraView({
   const countdownTimer = useRef<number>(0);
   const placementRef = useRef(placement);
   placementRef.current = placement;
+  const extraLayersRef = useRef(extraLayers);
+  extraLayersRef.current = extraLayers;
   const mirrored = facing === "user";
 
   useEffect(() => () => window.clearInterval(countdownTimer.current), []);
@@ -87,7 +93,6 @@ export function CameraView({
     if (autoStart && cameraSupported()) void start("user");
   }, [autoStart, start]);
 
-  // Stop the camera when leaving the page.
   useEffect(() => () => stopStream(stream), [stream]);
 
   useEffect(() => {
@@ -108,7 +113,6 @@ export function CameraView({
     return () => observer.disconnect();
   }, []);
 
-  // Draw the flower layer (and follow the hand when tracking is on).
   useEffect(() => {
     let frame = 0;
     let lastDetect = 0;
@@ -151,7 +155,14 @@ export function CameraView({
         const ctx = context2d(canvas);
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (recipe && status === "live") drawFlowerOn(ctx, recipe, placementRef.current, { x: 0, y: 0, w: canvas.width, h: canvas.height });
+        if (status === "live") {
+          for (const extra of extraLayersRef.current) {
+            drawFlowerOn(ctx, extra.recipe, extra.placement, { x: 0, y: 0, w: canvas.width, h: canvas.height });
+          }
+          if (recipe) {
+            drawFlowerOn(ctx, recipe, placementRef.current, { x: 0, y: 0, w: canvas.width, h: canvas.height });
+          }
+        }
       }
       frame = requestAnimationFrame(draw);
     };
@@ -159,8 +170,6 @@ export function CameraView({
     return () => cancelAnimationFrame(frame);
   }, [recipe, size, status, mirrored, onPlacement]);
 
-  // Live digicam filter: a small copy of each frame goes through the same
-  // theme renderer used for the final photo (about 15 frames a second).
   useEffect(() => {
     if (!filtered || status !== "live") return;
     let frame = 0;
@@ -228,10 +237,37 @@ export function CameraView({
   const shoot = () => {
     const v = video.current;
     if (!v || status !== "live" || !v.videoWidth) return;
-    const go = () => {
-      setFlash((f) => f + 1);
-      onCapture(captureFrame(v, mirrored), placementRef.current, "camera", filterRef.current);
+
+    const runMulti = (total: number) => {
+      const captured: HTMLCanvasElement[] = [];
+      let index = 0;
+      const takeOne = () => {
+        if (!video.current || !video.current.videoWidth) return;
+        setFlash((f) => f + 1);
+        captured.push(captureFrame(video.current, mirrored));
+        index += 1;
+        if (index >= total) {
+          setBurstProgress("");
+          if (onMultiCapture) onMultiCapture(captured, placementRef.current, filterRef.current);
+          else onCapture(captured[0], placementRef.current, "camera", filterRef.current);
+        } else {
+          setBurstProgress(`Shot ${index + 1}/${total}`);
+          countdownTimer.current = window.setTimeout(takeOne, 1150);
+        }
+      };
+      setBurstProgress(`Shot 1/${total}`);
+      takeOne();
     };
+
+    const go = () => {
+      if (shotCount > 1 && onMultiCapture) {
+        runMulti(shotCount);
+      } else {
+        setFlash((f) => f + 1);
+        onCapture(captureFrame(v, mirrored), placementRef.current, "camera", filterRef.current);
+      }
+    };
+
     if (!timer) return go();
     window.clearInterval(countdownTimer.current);
     let left = timer;
@@ -280,11 +316,10 @@ export function CameraView({
             <div className="hud-row">
               <span>
                 <span className="lcd">●</span> {facing === "user" ? "FRONT" : "BACK"} · {video.current?.videoWidth ?? 0}×{video.current?.videoHeight ?? 0}
+                {shotCount > 1 ? ` · ${shotCount}-SHOT` : ""}
               </span>
               <span>
-                {hand === "tracking" && "HAND ✓"}
-                {hand === "searching" && "SHOW YOUR HAND"}
-                {hand === "loading" && "LOADING HAND MODEL…"}
+                {burstProgress || (hand === "tracking" ? "HAND ✓" : hand === "searching" ? "SHOW YOUR HAND" : hand === "loading" ? "LOADING HAND MODEL…" : "")}
               </span>
             </div>
             <div className="hud-row">
@@ -327,7 +362,17 @@ export function CameraView({
         {countdown > 0 && <div className="countdown">{countdown}</div>}
         <div key={flash} className={`flash-overlay${flash ? " fire" : ""}`} />
       </div>
-      <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; void upload(file); }} />
+      <input
+        ref={fileInput}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          void upload(file);
+        }}
+      />
 
       {status === "live" && (
         <div className="cam-controls">
@@ -339,7 +384,7 @@ export function CameraView({
               Timer {timer ? `${timer}s` : "off"}
             </button>
           </div>
-          <button type="button" className="shutter" onClick={shoot} disabled={countdown > 0} aria-label="Take photo">
+          <button type="button" className="shutter" onClick={shoot} disabled={countdown > 0 || Boolean(burstProgress)} aria-label="Take photo">
             <span />
           </button>
           <div className="side-tools">

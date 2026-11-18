@@ -2687,3 +2687,19 @@ input[type="range"]::-moz-range-thumb {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.cam-layer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--line);
+  background: var(--field);
+  cursor: pointer;
+}
+
+.cam-layer-row.active {
+  border-color: var(--rose);
+  background: rgba(231, 163, 181, 0.08);
+}

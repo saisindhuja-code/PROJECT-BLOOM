@@ -1,31 +1,135 @@
 /**
- * Putting flowers on photos, and arranging several photos into one
- * composition (Bloom Together and Live Bloom).
+ * Putting flowers on photos, non-destructive photo cropping, Cam 2.0
+ * composition styles (photo strip, contact sheet, etc.) and multi-photo layouts.
  */
 
 import { buildFlower } from "../flower/engine";
 import type { FlowerRecipe } from "../flower/recipe";
 import { flowerSticker, type FlowerSticker } from "../flower/render";
 import { context2d, makeCanvas, sourceSize, type Source } from "./process";
+import type { ThemeId } from "./themes";
 
-/** Where a flower sits on a photo. Positions are fractions of the photo size. */
 export interface FlowerPlacement {
-  /** Centre of the flower head (where the petals meet). */
   x: number;
   y: number;
-  /** Height of the whole flower (with stem) as a fraction of the photo height. */
   size: number;
-  /** Degrees, clockwise. */
   rotation: number;
-  /** How much of each edge of the flower to cut away (0..0.45). */
   crop: { top: number; right: number; bottom: number; left: number };
   flip: boolean;
-  /** Hidden flowers are kept in the edit but not drawn. */
   visible: boolean;
 }
 
+export interface FlowerLayer {
+  id: string;
+  recipe: FlowerRecipe;
+  placement: FlowerPlacement;
+}
+
+export type CropAspect = "original" | "1:1" | "4:5" | "3:4" | "9:16" | "manual";
+
+export interface PhotoCrop {
+  aspect: CropAspect;
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+export function defaultPhotoCrop(aspect: CropAspect = "original"): PhotoCrop {
+  return { aspect, top: 0, right: 0, bottom: 0, left: 0 };
+}
+
+export function normalizePhotoCrop(input: unknown): PhotoCrop {
+  const base = defaultPhotoCrop();
+  if (!input || typeof input !== "object") return base;
+  const d = input as Record<string, unknown>;
+  const aspects: CropAspect[] = ["original", "1:1", "4:5", "3:4", "9:16", "manual"];
+  const num = (v: unknown) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(0.4, Math.max(0, n)) : 0;
+  };
+  return {
+    aspect: aspects.includes(d.aspect as CropAspect) ? (d.aspect as CropAspect) : "original",
+    top: num(d.top),
+    right: num(d.right),
+    bottom: num(d.bottom),
+    left: num(d.left),
+  };
+}
+
+const ASPECT_RATIOS: Partial<Record<CropAspect, number>> = {
+  "1:1": 1,
+  "4:5": 4 / 5,
+  "3:4": 3 / 4,
+  "9:16": 9 / 16,
+};
+
+/** Non-destructively crops a copy of source using edge insets and/or aspect ratio. */
+export function cropPhotoCanvas(source: Source, crop: PhotoCrop, maxSize = Infinity): HTMLCanvasElement {
+  const { width, height } = sourceSize(source);
+  const left = Math.min(0.4, Math.max(0, crop.left));
+  const right = Math.min(0.4, Math.max(0, crop.right));
+  const top = Math.min(0.4, Math.max(0, crop.top));
+  const bottom = Math.min(0.4, Math.max(0, crop.bottom));
+
+  let sx = width * left;
+  let sy = height * top;
+  let sw = Math.max(1, width * (1 - left - right));
+  let sh = Math.max(1, height * (1 - top - bottom));
+
+  const targetRatio = ASPECT_RATIOS[crop.aspect];
+  if (targetRatio) {
+    const currentRatio = sw / sh;
+    if (currentRatio > targetRatio) {
+      const nextW = sh * targetRatio;
+      sx += (sw - nextW) / 2;
+      sw = nextW;
+    } else if (currentRatio < targetRatio) {
+      const nextH = sw / targetRatio;
+      sy += (sh - nextH) / 2;
+      sh = nextH;
+    }
+  }
+
+  const scale = Math.min(1, maxSize / Math.max(sw, sh));
+  const out = makeCanvas(sw * scale, sh * scale);
+  const ctx = context2d(out);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(source, sx, sy, sw, sh, 0, 0, out.width, out.height);
+  return out;
+}
+
+export type CamStyleId =
+  | "single"
+  | "vintage-digicam"
+  | "disposable"
+  | "polaroid"
+  | "photo-strip"
+  | "contact-sheet"
+  | "botanical-portrait";
+
+export interface CamStyleSpec {
+  id: CamStyleId;
+  name: string;
+  hint: string;
+  preset: ThemeId;
+  frame: boolean;
+  dateStamp: boolean;
+  aspect?: CropAspect;
+  multiShots?: number;
+}
+
+export const CAM_STYLES: CamStyleSpec[] = [
+  { id: "single", name: "Free style", hint: "Full-frame photo with any filter", preset: "natural", frame: false, dateStamp: false },
+  { id: "vintage-digicam", name: "Vintage digicam", hint: "2000s digital look, date stamp & LCD border", preset: "y2k", frame: true, dateStamp: true },
+  { id: "disposable", name: "Disposable camera", hint: "Hard flash, grain & party date stamp", preset: "disposable", frame: false, dateStamp: true },
+  { id: "polaroid", name: "Polaroid", hint: "Instant film color in a white caption frame", preset: "polaroid", frame: true, dateStamp: true },
+  { id: "photo-strip", name: "Photo strip", hint: "3-frame vertical photobooth strip", preset: "vintage-film", frame: false, dateStamp: true, multiShots: 3 },
+  { id: "contact-sheet", name: "Contact sheet", hint: "4-frame darkroom contact sheet with sprockets", preset: "black-white", frame: false, dateStamp: false, multiShots: 4 },
+  { id: "botanical-portrait", name: "Botanical portrait", hint: "3:4 portrait pressed in a sage mat", preset: "botanical", frame: true, dateStamp: true, aspect: "3:4" },
+];
+
 export function defaultPlacement(): FlowerPlacement {
-  // A pleasant default: lower right third, as if offered toward the camera.
   return { x: 0.64, y: 0.42, size: 0.72, rotation: -8, crop: { top: 0, right: 0, bottom: 0, left: 0 }, flip: false, visible: true };
 }
 
@@ -54,15 +158,10 @@ export function normalizePlacement(input: unknown): FlowerPlacement {
   };
 }
 
-/** Pixels per turtle unit when the flower is drawn at `size` on an image `imageHeight` tall. */
 function unitScale(sticker: FlowerSticker, placement: FlowerPlacement, imageHeight: number): number {
   return (placement.size * imageHeight) / sticker.height;
 }
 
-/**
- * Draws a flower onto ctx. (ox, oy, w, h) is the rectangle of the photo it
- * belongs to, in the context's current coordinates.
- */
 export function drawFlowerOn(
   ctx: CanvasRenderingContext2D,
   recipe: FlowerRecipe,
@@ -98,7 +197,6 @@ export function drawFlowerOn(
   ctx.restore();
 }
 
-/** The flower's outline on the photo (for the on-screen handles), in rect pixels. */
 export function placementCorners(
   recipe: FlowerRecipe,
   placement: FlowerPlacement,
@@ -127,10 +225,6 @@ export function placementCorners(
   });
 }
 
-/**
- * Where the stem ends, relative to the flower centre, in turtle units with
- * y pointing DOWN (screen style). Used to put the stem in a hand.
- */
 export function stemEnd(recipe: FlowerRecipe): { x: number; y: number } {
   const drawing = buildFlower({ ...recipe, showHearts: false });
   let end: [number, number] | null = null;
@@ -141,15 +235,11 @@ export function stemEnd(recipe: FlowerRecipe): { x: number; y: number } {
   return { x: end[0], y: -end[1] };
 }
 
-// ---------------------------------------------------------------------------
-// Photo framing inside a slot (cover-fit, then zoom/pan/rotate)
-// ---------------------------------------------------------------------------
-
 export interface PhotoTransform {
-  zoom: number; // 1 = fill the slot
-  panX: number; // -1..1
-  panY: number; // -1..1
-  rotation: number; // degrees
+  zoom: number;
+  panX: number;
+  panY: number;
+  rotation: number;
 }
 
 export function defaultPhotoTransform(): PhotoTransform {
@@ -195,10 +285,6 @@ export function drawPhotoInRect(
   ctx.restore();
 }
 
-// ---------------------------------------------------------------------------
-// Layouts for compositions with several pictures
-// ---------------------------------------------------------------------------
-
 export type LayoutId = "side-by-side" | "stacked" | "polaroid-pair" | "scrapbook" | "diagonal" | "overlap";
 
 export interface Slot {
@@ -207,9 +293,7 @@ export interface Slot {
   w: number;
   h: number;
   rotation: number;
-  /** A white instant-film border around this slot. */
   polaroid?: boolean;
-  /** Clip to the left or right of a diagonal line. */
   diagonal?: "left" | "right";
   tape?: boolean;
 }
@@ -297,7 +381,6 @@ export function layoutSpec(id: LayoutId, count: number): LayoutSpec {
     }));
     return { id, name, width: W, height: H, background: "#160d1c", slots: [{ x: 0, y: 0, w: W, h: H, rotation: 0 }, ...extra] };
   }
-  // side-by-side (and the fallback for layouts that need two pictures)
   const cols = Math.min(n, 4);
   const rows = Math.ceil(n / cols);
   const slotW = 900;
@@ -321,11 +404,9 @@ export interface CompositionItem {
   photoTransform: PhotoTransform;
   recipe: FlowerRecipe | null;
   flower: FlowerPlacement;
-  /** Shown on empty slots ("Waiting for Asha's photo"). */
   label?: string;
 }
 
-/** Draws a whole multi-photo composition (before the theme is applied). */
 export function renderComposition(layoutId: LayoutId, items: CompositionItem[], scale = 1): HTMLCanvasElement {
   const spec = layoutSpec(layoutId, items.length);
   const canvas = makeCanvas(spec.width * scale, spec.height * scale);
@@ -410,19 +491,109 @@ export function renderComposition(layoutId: LayoutId, items: CompositionItem[], 
   return canvas;
 }
 
-/** Renders a single photo with its flower (Bloom Cam), at full photo resolution or smaller. */
 export function renderPhotoWithFlower(
   photo: Source,
   recipe: FlowerRecipe | null,
   placement: FlowerPlacement,
   maxSize = 2400,
 ): HTMLCanvasElement {
+  return renderPhotoWithLayers(photo, recipe ? [{ id: "main", recipe, placement }] : [], maxSize);
+}
+
+/** Renders a single photo with multiple flower layers on top. */
+export function renderPhotoWithLayers(photo: Source, layers: FlowerLayer[], maxSize = 2400): HTMLCanvasElement {
   const { width, height } = sourceSize(photo);
   const scale = Math.min(1, maxSize / Math.max(width, height));
   const canvas = makeCanvas(width * scale, height * scale);
   const ctx = context2d(canvas);
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(photo, 0, 0, canvas.width, canvas.height);
-  if (recipe) drawFlowerOn(ctx, recipe, placement, { x: 0, y: 0, w: canvas.width, h: canvas.height });
+  for (const layer of layers) {
+    drawFlowerOn(ctx, layer.recipe, layer.placement, { x: 0, y: 0, w: canvas.width, h: canvas.height });
+  }
+  return canvas;
+}
+
+/** Renders a Cam 2.0 Photo Strip (vertical) or Contact Sheet (darkroom grid). */
+export function renderMultiFrameCam(
+  frames: HTMLCanvasElement[],
+  style: "photo-strip" | "contact-sheet",
+  options: { caption?: string; date?: Date; maxSize?: number } = {},
+): HTMLCanvasElement {
+  const list = frames.length ? frames : [makeCanvas(640, 480)];
+  const date = options.date ?? new Date();
+  const dateLabel = date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+
+  if (style === "photo-strip") {
+    const slotW = 860;
+    const slotH = 620;
+    const pad = 48;
+    const gap = 32;
+    const footer = 130;
+    const W = slotW + pad * 2;
+    const H = pad + list.length * slotH + (list.length - 1) * gap + footer;
+    const scale = Math.min(1, (options.maxSize ?? 2400) / Math.max(W, H));
+    const canvas = makeCanvas(W * scale, H * scale);
+    const ctx = context2d(canvas);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#f7f3ea";
+    ctx.fillRect(0, 0, W, H);
+    list.forEach((frame, i) => {
+      const y = pad + i * (slotH + gap);
+      drawPhotoInRect(ctx, frame, defaultPhotoTransform(), { x: pad, y, w: slotW, h: slotH });
+      ctx.strokeStyle = "rgba(40,30,20,0.14)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(pad, y, slotW, slotH);
+    });
+    ctx.fillStyle = "#3b2c35";
+    ctx.font = `italic 400 38px "Fraunces", Georgia, serif`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(options.caption || "bloom", pad, H - footer / 2);
+    ctx.textAlign = "right";
+    ctx.font = `500 22px "DM Mono", monospace`;
+    ctx.fillStyle = "#8a707a";
+    ctx.fillText(dateLabel, W - pad, H - footer / 2);
+    return canvas;
+  }
+
+  // Contact sheet
+  const cols = list.length <= 4 ? 2 : 3;
+  const rows = Math.ceil(list.length / cols);
+  const slotW = 680;
+  const slotH = 510;
+  const padX = 64;
+  const padTop = 96;
+  const padBottom = 86;
+  const gapX = 40;
+  const gapY = 66;
+  const W = padX * 2 + cols * slotW + (cols - 1) * gapX;
+  const H = padTop + rows * slotH + (rows - 1) * gapY + padBottom;
+  const scale = Math.min(1, (options.maxSize ?? 2400) / Math.max(W, H));
+  const canvas = makeCanvas(W * scale, H * scale);
+  const ctx = context2d(canvas);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "#0e0b0d";
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = "#e0912f";
+  ctx.font = `500 24px "DM Mono", monospace`;
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  ctx.fillText("BLOOM 400 · CONTACT SHEET", padX, 48);
+  ctx.textAlign = "right";
+  ctx.fillText(dateLabel.toUpperCase(), W - padX, 48);
+
+  list.forEach((frame, i) => {
+    const c = i % cols;
+    const r = Math.floor(i / cols);
+    const x = padX + c * (slotW + gapX);
+    const y = padTop + r * (slotH + gapY);
+    drawPhotoInRect(ctx, frame, defaultPhotoTransform(), { x, y, w: slotW, h: slotH });
+    ctx.fillStyle = "#e0912f";
+    ctx.font = `500 18px "DM Mono", monospace`;
+    ctx.textAlign = "left";
+    ctx.fillText(`${String(i + 1).padStart(2, "0")}A  ▸`, x, y + slotH + 26);
+  });
   return canvas;
 }

@@ -685,5 +685,38 @@ class BloomApiTest(unittest.TestCase):
         self.assertEqual(long_msg.status_code, 422)
 
 
+    def test_10_phase6_cam_edit_state_persistence(self) -> None:
+        a, _ = self.client("cam2_user", "Cam User")
+        photo = self.upload(a, kind="photo")
+        orig = self.upload(a, kind="original")
+        edit_state = {
+            "version": 2,
+            "camStyle": "botanical-portrait",
+            "crop": {"aspect": "3:4", "top": 0.05, "right": 0.0, "bottom": 0.05, "left": 0.0},
+            "theme": {"preset": "botanical", "name": "Botanical Garden", "intensity": 1.0},
+            "layers": [
+                {"id": "l1", "recipe": recipe("rose"), "placement": {"x": 0.35, "y": 0.5, "size": 0.6}},
+                {"id": "l2", "recipe": recipe("lily"), "placement": {"x": 0.7, "y": 0.4, "size": 0.5}},
+            ],
+            "overlay": {"x": 0.35, "y": 0.5, "size": 0.6},
+        }
+        created = a.post(
+            "/api/journal",
+            json={
+                "entry_type": "photo",
+                "title": "Two Flowers",
+                "recipe": recipe("rose"),
+                "photo_media_id": photo["id"],
+                "original_media_id": orig["id"],
+                "edit_state": edit_state,
+            },
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        loaded = a.get(f"/api/journal/{created.json()['id']}").json()
+        self.assertEqual(loaded["edit_state"]["camStyle"], "botanical-portrait")
+        self.assertEqual(loaded["edit_state"]["crop"]["aspect"], "3:4")
+        self.assertEqual(len(loaded["edit_state"]["layers"]), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
