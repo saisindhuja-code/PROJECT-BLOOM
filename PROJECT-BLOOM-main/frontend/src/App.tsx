@@ -18,6 +18,7 @@ import { LiveRoomPage } from "./pages/LiveRoom";
 import { NotificationsPage } from "./pages/Notifications";
 import { ProfilePage } from "./pages/Profile";
 import { ProjectPage } from "./pages/Project";
+import { ScrapbookEditorPage } from "./pages/ScrapbookEditor";
 import { StudioPage } from "./pages/Studio";
 import { TogetherPage } from "./pages/Together";
 import { ThemesPage } from "./pages/Themes";
@@ -40,6 +41,8 @@ const ROUTES: Array<{ path: string; render: (params: Record<string, string>) => 
   { path: "/cam", render: () => <CamPage /> },
   { path: "/journal", render: () => <JournalPage /> },
   { path: "/journal/:id", render: (p) => <EntryPage id={p.id} /> },
+  { path: "/scrapbook", render: () => <ScrapbookEditorPage /> },
+  { path: "/scrapbook/:id", render: (p) => <ScrapbookEditorPage id={p.id} /> },
   { path: "/friends", render: () => <FriendsPage /> },
   { path: "/chat", render: () => <ChatPage /> },
   { path: "/chat/:id", render: (p) => <ChatPage conversationId={p.id} /> },

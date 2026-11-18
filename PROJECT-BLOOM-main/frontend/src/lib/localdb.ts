@@ -1,11 +1,11 @@
 /**
  * IndexedDB storage for "this device" mode (no account, or server offline).
- * Survives page refreshes and browser restarts. Images are stored as Blobs.
+ * Version 2 adds reusable user stickers.
  */
 
 const DB_NAME = "bloom-local";
-const DB_VERSION = 1;
-export const STORES = ["entries", "albums", "designs", "blobs"] as const;
+const DB_VERSION = 2;
+export const STORES = ["entries", "albums", "designs", "blobs", "stickers"] as const;
 export type StoreName = (typeof STORES)[number];
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -52,8 +52,8 @@ export async function put<T extends { id: string }>(store: StoreName, value: T):
   tx.objectStore(store).put(value);
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error ?? new Error("Could not save on this device. The browser may be out of space."));
-    tx.onabort = () => reject(tx.error ?? new Error("Could not save on this device. The browser may be out of space."));
+    tx.onerror = () => reject(tx.error ?? new Error("Could not save on this device."));
+    tx.onabort = () => reject(tx.error ?? new Error("Could not save on this device."));
   });
 }
 

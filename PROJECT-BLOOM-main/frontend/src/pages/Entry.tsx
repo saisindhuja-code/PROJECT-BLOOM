@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { AlbumPicker } from "../components/AlbumPicker";
 import { FlowerPreview } from "../components/FlowerPreview";
-import { IconArrowLeft, IconCamera, IconCopy, IconDownload, IconEdit, IconFlower, IconTrash } from "../components/Icons";
+import { IconArrowLeft, IconCamera, IconCopy, IconDownload, IconEdit, IconFlower, IconReset, IconTrash } from "../components/Icons";
 import { Loading, formatDate } from "../components/ui";
 import { buildFlower } from "../flower/engine";
 import { canvasToBlob, downloadBlob, drawingToCanvas, safeFileName } from "../flower/render";
@@ -99,11 +99,26 @@ export function EntryPage({ id }: { id: string }) {
       navigate(`/journal/${copy.id}`);
     });
 
-  const remove = () => {
-    if (!window.confirm("Delete this entry? This can't be undone.")) return;
+  const moveToTrash = () => {
+    void run(async () => {
+      await store.trashEntry(entry.id);
+      toast("Moved to trash.");
+      navigate("/journal", { replace: true });
+    });
+  };
+
+  const restoreFromTrash = () => {
+    void run(async () => {
+      setEntry(await store.restoreEntry(entry.id));
+      toast("Restored.");
+    });
+  };
+
+  const removeForever = () => {
+    if (!window.confirm("Delete permanently? This can't be undone.")) return;
     void run(async () => {
       await store.deleteEntry(entry.id);
-      toast("Deleted.");
+      toast("Permanently deleted.");
       navigate("/journal", { replace: true });
     });
   };
@@ -149,6 +164,11 @@ export function EntryPage({ id }: { id: string }) {
           </p>
         </div>
         <div className="btn-row">
+          {entry.entry_type === "scrapbook" && (
+            <button type="button" className="btn primary" onClick={() => navigate(`/scrapbook/${encodeURIComponent(entry.id)}`)}>
+              <IconEdit /> Edit scrapbook page
+            </button>
+          )}
           {entry.entry_type === "photo" && (
             <button type="button" className="btn" onClick={() => navigate(`/cam?entry=${encodeURIComponent(entry.id)}`)}>
               <IconCamera /> Edit photo
@@ -160,7 +180,7 @@ export function EntryPage({ id }: { id: string }) {
               className="btn"
               onClick={() => {
                 growFlower(entry.recipe!);
-                navigate("/studio");
+                navigate(`/studio?entry=${encodeURIComponent(entry.id)}`);
               }}
             >
               <IconFlower /> Open flower in studio
@@ -203,9 +223,20 @@ export function EntryPage({ id }: { id: string }) {
                 Remove original
               </button>
             )}
-            <button type="button" className="btn small quiet danger" disabled={busy} onClick={remove}>
-              <IconTrash /> Delete
-            </button>
+            {entry.deleted_at ? (
+              <>
+                <button type="button" className="btn small" disabled={busy} onClick={restoreFromTrash}>
+                  <IconReset /> Restore
+                </button>
+                <button type="button" className="btn small quiet danger" disabled={busy} onClick={removeForever}>
+                  <IconTrash /> Delete forever
+                </button>
+              </>
+            ) : (
+              <button type="button" className="btn small quiet danger" disabled={busy} onClick={moveToTrash}>
+                <IconTrash /> Move to trash
+              </button>
+            )}
           </div>
         </div>
 

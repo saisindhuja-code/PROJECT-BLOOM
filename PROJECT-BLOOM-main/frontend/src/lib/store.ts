@@ -1,19 +1,28 @@
 /**
- * One interface for the journal, albums and saved designs, with two storage
- * backends: ServerStore (Bloom account) and LocalStore (IndexedDB).
+ * One interface for the journal, scrapbook pages, reusable stickers, albums
+ * and saved designs, with ServerStore and LocalStore (IndexedDB).
  */
 
 import type { FlowerRecipe } from "../flower/recipe";
 import { normalizeRecipe } from "../flower/recipe";
 import { api, mediaUrl, uploadImage, type Visibility } from "./api";
 import * as local from "./localdb";
+import { normalizeScrapbookDoc, type ScrapbookDoc } from "./scrapbook";
 
-export type EntryType = "flower" | "photo" | "composition";
+export type EntryType = "flower" | "photo" | "composition" | "scrapbook";
 export type { Visibility };
 
 export interface Participant {
   bloom_id: string;
   display_name: string;
+}
+
+export interface UserSticker {
+  id: string;
+  name: string;
+  media_id?: number;
+  url: string;
+  created_at: string;
 }
 
 export interface JournalEntry {
@@ -28,6 +37,9 @@ export interface JournalEntry {
   photoUrl: string | null;
   originalUrl: string | null;
   edit_state: EditState | null;
+  scrapbook_doc: ScrapbookDoc | null;
+  sort_order: number;
+  deleted_at: string | null;
   project_id: number | null;
   participants: Participant[];
   album_ids: string[];
@@ -68,6 +80,8 @@ export interface NewEntry {
   photo?: Blob | null;
   original?: Blob | null;
   edit_state?: EditState | null;
+  scrapbook_doc?: ScrapbookDoc | null;
+  sort_order?: number;
   project_id?: number | null;
   album_ids?: string[];
   visibility?: Visibility;
@@ -83,6 +97,8 @@ export interface EntryPatch {
   original?: Blob;
   keep_original?: boolean;
   edit_state?: EditState;
+  scrapbook_doc?: ScrapbookDoc;
+  sort_order?: number;
   album_ids?: string[];
   visibility?: Visibility;
 }
@@ -91,6 +107,7 @@ export interface EntryFilter {
   q?: string;
   type?: EntryType | "";
   albumId?: string;
+  trashed?: boolean;
 }
 
 export interface BloomStore {
@@ -99,6 +116,9 @@ export interface BloomStore {
   getEntry(id: string): Promise<JournalEntry>;
   createEntry(entry: NewEntry): Promise<JournalEntry>;
   updateEntry(id: string, patch: EntryPatch): Promise<JournalEntry>;
+  trashEntry(id: string): Promise<JournalEntry>;
+  restoreEntry(id: string): Promise<JournalEntry>;
+  reorderEntries(entryIds: string[]): Promise<void>;
   duplicateEntry(id: string): Promise<JournalEntry>;
   deleteEntry(id: string): Promise<void>;
   listAlbums(): Promise<Album[]>;
@@ -109,6 +129,9 @@ export interface BloomStore {
   listDesigns(): Promise<SavedDesign[]>;
   saveDesign(recipe: FlowerRecipe, title: string, id?: string, visibility?: Visibility): Promise<SavedDesign>;
   deleteDesign(id: string): Promise<void>;
+  listStickers(): Promise<UserSticker[]>;
+  createSticker(blob: Blob, name: string): Promise<UserSticker>;
+  deleteSticker(id: string): Promise<void>;
 }
 
 const imageName = (blob: Blob) => (blob.type === "image/png" ? "image.png" : "image.jpg");
@@ -128,6 +151,9 @@ interface ServerEntry {
   photo_url: string | null;
   original_url: string | null;
   edit_state: EditState | null;
+  scrapbook_doc: unknown;
+  sort_order?: number;
+  deleted_at?: string | null;
   project_id: number | null;
   participants: Participant[];
   album_ids: number[];
@@ -151,6 +177,9 @@ function fromServer(entry: ServerEntry): JournalEntry {
     photoUrl: mediaUrl(entry.photo_url),
     originalUrl: mediaUrl(entry.original_url),
     edit_state: entry.edit_state,
+    scrapbook_doc: entry.scrapbook_doc ? normalizeScrapbookDoc(entry.scrapbook_doc) : null,
+    sort_order: entry.sort_order ?? 0,
+    deleted_at: entry.deleted_at ?? null,
     project_id: entry.project_id,
     participants: entry.participants ?? [],
     album_ids: entry.album_ids.map((id) => `s:${id}`),
@@ -168,6 +197,7 @@ export class ServerStore implements BloomStore {
     if (filter.q) params.set("q", filter.q);
     if (filter.type) params.set("type", filter.type);
     if (filter.albumId) params.set("album_id", String(serverId(filter.albumId)));
+    if (filter.trashed) params.set("trashed", "true");
     const rows = await api<ServerEntry[]>(`/api/journal?${params}`);
     return rows.map(fromServer);
   }
@@ -190,6 +220,8 @@ export class ServerStore implements BloomStore {
         photo_media_id: photo?.id ?? null,
         original_media_id: original?.id ?? null,
         edit_state: entry.edit_state ?? null,
+        scrapbook_doc: entry.scrapbook_doc ?? null,
+        sort_order: entry.sort_order ?? 0,
         project_id: entry.project_id ?? null,
         album_ids: (entry.album_ids ?? []).map(serverId),
         visibility: entry.visibility ?? "private",
@@ -200,13 +232,36 @@ export class ServerStore implements BloomStore {
 
   async updateEntry(id: string, patch: EntryPatch): Promise<JournalEntry> {
     const body: Record<string, unknown> = {};
-    for (const key of ["title", "caption", "notes", "taken_at", "recipe", "keep_original", "edit_state", "visibility"] as const) {
+    for (const key of [
+      "title",
+      "caption",
+      "notes",
+      "taken_at",
+      "recipe",
+      "keep_original",
+      "edit_state",
+      "scrapbook_doc",
+      "sort_order",
+      "visibility",
+    ] as const) {
       if (patch[key] !== undefined) body[key] = patch[key];
     }
     if (patch.album_ids) body.album_ids = patch.album_ids.map(serverId);
     if (patch.photo) body.photo_media_id = (await uploadImage(patch.photo, "photo", imageName(patch.photo))).id;
     if (patch.original) body.original_media_id = (await uploadImage(patch.original, "original", imageName(patch.original))).id;
     return fromServer(await api<ServerEntry>(`/api/journal/${serverId(id)}`, { method: "PATCH", body }));
+  }
+
+  async trashEntry(id: string): Promise<JournalEntry> {
+    return fromServer(await api<ServerEntry>(`/api/journal/${serverId(id)}/trash`, { method: "POST" }));
+  }
+
+  async restoreEntry(id: string): Promise<JournalEntry> {
+    return fromServer(await api<ServerEntry>(`/api/journal/${serverId(id)}/restore`, { method: "POST" }));
+  }
+
+  async reorderEntries(entryIds: string[]): Promise<void> {
+    await api("/api/journal/reorder", { body: { entry_ids: entryIds.map(serverId) } });
   }
 
   async duplicateEntry(id: string): Promise<JournalEntry> {
@@ -276,14 +331,47 @@ export class ServerStore implements BloomStore {
   async deleteDesign(id: string): Promise<void> {
     await api(`/api/designs/${serverId(id)}`, { method: "DELETE" });
   }
+
+  async listStickers(): Promise<UserSticker[]> {
+    const rows = await api<Array<{ id: number; name: string; media_id: number; url: string; created_at: string }>>("/api/stickers");
+    return rows.map((s) => ({
+      id: `s:${s.id}`,
+      name: s.name,
+      media_id: s.media_id,
+      url: mediaUrl(s.url)!,
+      created_at: s.created_at,
+    }));
+  }
+
+  async createSticker(blob: Blob, name: string): Promise<UserSticker> {
+    const media = await uploadImage(blob, "sticker", imageName(blob));
+    const s = await api<{ id: number; name: string; media_id: number; url: string; created_at: string }>("/api/stickers", {
+      body: { name, media_id: media.id },
+    });
+    return {
+      id: `s:${s.id}`,
+      name: s.name,
+      media_id: s.media_id,
+      url: mediaUrl(s.url)!,
+      created_at: s.created_at,
+    };
+  }
+
+  async deleteSticker(id: string): Promise<void> {
+    await api(`/api/stickers/${serverId(id)}`, { method: "DELETE" });
+  }
 }
 
 // ---------------------------------------------------------------------------
 // This device (IndexedDB)
 // ---------------------------------------------------------------------------
 
-interface LocalEntryRow extends Omit<JournalEntry, "photoUrl" | "originalUrl" | "source" | "visibility"> {
+interface LocalEntryRow
+  extends Omit<JournalEntry, "photoUrl" | "originalUrl" | "source" | "visibility" | "scrapbook_doc" | "sort_order" | "deleted_at"> {
   visibility?: Visibility;
+  scrapbook_doc?: ScrapbookDoc | null;
+  sort_order?: number;
+  deleted_at?: string | null;
   photoBlobId: string | null;
   originalBlobId: string | null;
 }
@@ -302,9 +390,16 @@ interface LocalDesignRow {
   updated_at: string;
 }
 
+interface LocalStickerRow {
+  id: string;
+  name: string;
+  blobId: string;
+  created_at: string;
+}
+
 const objectUrls = new Map<string, string>();
 
-async function blobUrl(blobId: string | null): Promise<string | null> {
+export async function localBlobUrl(blobId: string | null | undefined): Promise<string | null> {
   if (!blobId) return null;
   const cached = objectUrls.get(blobId);
   if (cached) return cached;
@@ -327,12 +422,28 @@ export class LocalStore implements BloomStore {
 
   private async hydrate(row: LocalEntryRow): Promise<JournalEntry> {
     const { photoBlobId, originalBlobId, ...rest } = row;
+    let doc = row.scrapbook_doc ? normalizeScrapbookDoc(row.scrapbook_doc) : null;
+    if (doc) {
+      const elements = await Promise.all(
+        doc.elements.map(async (el) => {
+          if (el.localBlobId) {
+            const url = await localBlobUrl(el.localBlobId);
+            return { ...el, url: url ?? el.url };
+          }
+          return el;
+        }),
+      );
+      doc = { ...doc, elements };
+    }
     return {
       ...rest,
       visibility: row.visibility ?? "private",
+      scrapbook_doc: doc,
+      sort_order: row.sort_order ?? 0,
+      deleted_at: row.deleted_at ?? null,
       source: "local",
-      photoUrl: await blobUrl(photoBlobId),
-      originalUrl: await blobUrl(originalBlobId),
+      photoUrl: await localBlobUrl(photoBlobId),
+      originalUrl: await localBlobUrl(originalBlobId),
     };
   }
 
@@ -344,11 +455,13 @@ export class LocalStore implements BloomStore {
 
   async listEntries(filter: EntryFilter = {}): Promise<JournalEntry[]> {
     const needle = (filter.q ?? "").trim().toLowerCase();
+    const wantTrashed = Boolean(filter.trashed);
     const rows = (await local.getAll<LocalEntryRow>("entries"))
+      .filter((e) => (wantTrashed ? Boolean(e.deleted_at) : !e.deleted_at))
       .filter((e) => !filter.type || e.entry_type === filter.type)
       .filter((e) => !filter.albumId || e.album_ids.includes(filter.albumId))
       .filter((e) => matches(e, needle))
-      .sort((a, b) => b.taken_at.localeCompare(a.taken_at));
+      .sort((a, b) => (b.sort_order ?? 0) - (a.sort_order ?? 0) || b.taken_at.localeCompare(a.taken_at));
     return Promise.all(rows.map((r) => this.hydrate(r)));
   }
 
@@ -367,6 +480,9 @@ export class LocalStore implements BloomStore {
       taken_at: entry.taken_at ?? now,
       recipe: entry.recipe ?? null,
       edit_state: entry.edit_state ?? null,
+      scrapbook_doc: entry.scrapbook_doc ?? null,
+      sort_order: entry.sort_order ?? 0,
+      deleted_at: null,
       project_id: entry.project_id ?? null,
       participants: [],
       album_ids: entry.album_ids ?? [],
@@ -393,10 +509,35 @@ export class LocalStore implements BloomStore {
     return this.hydrate(row);
   }
 
+  async trashEntry(id: string): Promise<JournalEntry> {
+    const row = await this.row(id);
+    row.deleted_at = new Date().toISOString();
+    await local.put("entries", row);
+    return this.hydrate(row);
+  }
+
+  async restoreEntry(id: string): Promise<JournalEntry> {
+    const row = await this.row(id);
+    row.deleted_at = null;
+    await local.put("entries", row);
+    return this.hydrate(row);
+  }
+
+  async reorderEntries(entryIds: string[]): Promise<void> {
+    const total = entryIds.length;
+    for (let i = 0; i < total; i++) {
+      const r = await local.get<LocalEntryRow>("entries", entryIds[i]);
+      if (r) {
+        r.sort_order = total - i;
+        await local.put("entries", r);
+      }
+    }
+  }
+
   async duplicateEntry(id: string): Promise<JournalEntry> {
     const row = await this.row(id);
     const now = new Date().toISOString();
-    const copy = { ...row, id: `l:${local.uid()}`, title: row.title ? `${row.title} (copy)` : "Copy", created_at: now, updated_at: now };
+    const copy = { ...row, id: `l:${local.uid()}`, title: row.title ? `${row.title} (copy)` : "Copy", deleted_at: null, created_at: now, updated_at: now };
     await local.put("entries", copy);
     return this.hydrate(copy);
   }
@@ -411,6 +552,12 @@ export class LocalStore implements BloomStore {
     for (const e of await local.getAll<LocalEntryRow>("entries")) {
       if (e.photoBlobId) used.add(e.photoBlobId);
       if (e.originalBlobId) used.add(e.originalBlobId);
+      for (const el of e.scrapbook_doc?.elements ?? []) {
+        if (el.localBlobId) used.add(el.localBlobId);
+      }
+    }
+    for (const s of await local.getAll<LocalStickerRow>("stickers")) {
+      if (s.blobId) used.add(s.blobId);
     }
     for (const b of await local.getAll<{ id: string }>("blobs")) {
       if (!used.has(b.id)) {
@@ -424,7 +571,7 @@ export class LocalStore implements BloomStore {
 
   async listAlbums(): Promise<Album[]> {
     const albums = await local.getAll<LocalAlbumRow>("albums");
-    const entries = await local.getAll<LocalEntryRow>("entries");
+    const entries = (await local.getAll<LocalEntryRow>("entries")).filter((e) => !e.deleted_at);
     return albums
       .map((a) => ({
         id: a.id,
@@ -489,6 +636,33 @@ export class LocalStore implements BloomStore {
 
   async deleteDesign(id: string): Promise<void> {
     await local.remove("designs", id);
+  }
+
+  async listStickers(): Promise<UserSticker[]> {
+    const rows = await local.getAll<LocalStickerRow>("stickers");
+    const out: UserSticker[] = [];
+    for (const r of rows.sort((a, b) => b.created_at.localeCompare(a.created_at))) {
+      const url = await localBlobUrl(r.blobId);
+      if (url) out.push({ id: r.id, name: r.name, url, created_at: r.created_at });
+    }
+    return out;
+  }
+
+  async createSticker(blob: Blob, name: string): Promise<UserSticker> {
+    const blobId = await local.putBlob(blob);
+    const row: LocalStickerRow = {
+      id: `l:${local.uid()}`,
+      name: name.trim() || "Sticker",
+      blobId,
+      created_at: new Date().toISOString(),
+    };
+    await local.put("stickers", row);
+    return { id: row.id, name: row.name, url: (await localBlobUrl(blobId))!, created_at: row.created_at };
+  }
+
+  async deleteSticker(id: string): Promise<void> {
+    await local.remove("stickers", id);
+    await this.collectBlobs();
   }
 
   async counts(): Promise<{ entries: number; designs: number; albums: number }> {

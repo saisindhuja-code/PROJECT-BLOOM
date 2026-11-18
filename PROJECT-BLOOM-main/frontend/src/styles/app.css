@@ -2703,3 +2703,46 @@ input[type="range"]::-moz-range-thumb {
   border-color: var(--rose);
   background: rgba(231, 163, 181, 0.08);
 }
+
+/* ---------------------------------------------------------------------
+   Scrapbook Editor
+   --------------------------------------------------------------------- */
+
+.scrapbook-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(300px, 380px);
+  gap: 32px;
+  align-items: start;
+}
+
+.scrapbook-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.scrapbook-canvas-wrap {
+  padding: 14px;
+  border-radius: var(--radius);
+  background: var(--plum-950);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.scrapbook-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 4;
+  border-radius: 4px;
+  touch-action: none;
+  user-select: none;
+}
+
+@media (max-width: 1080px) {
+  .scrapbook-workspace {
+    grid-template-columns: 1fr;
+  }
+}
